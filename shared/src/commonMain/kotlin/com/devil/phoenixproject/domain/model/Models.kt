@@ -43,7 +43,28 @@ sealed class WorkoutState {
         val metrics: List<WorkoutMetric>,
         val peakPower: Float,
         val averagePower: Float,
-        val repCount: Int
+        val repCount: Int,
+        val durationMs: Long = 0L,
+        val totalVolumeKg: Float = 0f,
+        val heaviestLiftKgPerCable: Float = 0f,
+        val peakForceConcentricA: Float = 0f,  // Peak during lifting (velocity > 0)
+        val peakForceConcentricB: Float = 0f,
+        val peakForceEccentricA: Float = 0f,   // Peak during lowering (velocity < 0)
+        val peakForceEccentricB: Float = 0f,
+        val avgForceConcentricA: Float = 0f,
+        val avgForceConcentricB: Float = 0f,
+        val avgForceEccentricA: Float = 0f,
+        val avgForceEccentricB: Float = 0f,
+        val estimatedCalories: Float = 0f,
+        // Echo Mode Phase-Aware Metrics
+        val isEchoMode: Boolean = false,
+        val warmupReps: Int = 0,
+        val workingReps: Int = 0,
+        val burnoutReps: Int = 0,
+        val warmupAvgWeightKg: Float = 0f,  // Average weight during warmup phase
+        val workingAvgWeightKg: Float = 0f,  // Average weight at peak (working phase)
+        val burnoutAvgWeightKg: Float = 0f,  // Average weight during burnout/eccentric phase
+        val peakWeightKg: Float = 0f  // Highest weight achieved during set
     ) : WorkoutState()
     object Paused : WorkoutState()
     object Completed : WorkoutState()
@@ -55,7 +76,9 @@ sealed class WorkoutState {
         val nextExerciseName: String,
         val isLastExercise: Boolean,
         val currentSet: Int,
-        val totalSets: Int
+        val totalSets: Int,
+        val isSupersetTransition: Boolean = false,
+        val supersetLabel: String? = null
     ) : WorkoutState()
 }
 
@@ -184,7 +207,9 @@ data class WorkoutParameters(
     val stopAtTop: Boolean = false,  // false = stop at bottom (extended), true = stop at top (contracted)
     val warmupReps: Int = 3,
     val selectedExerciseId: String? = null,
-    val isAMRAP: Boolean = false  // AMRAP (As Many Reps As Possible) - disables auto-stop
+    val isAMRAP: Boolean = false,  // AMRAP (As Many Reps As Possible) - disables auto-stop
+    val lastUsedWeightKg: Float? = null,  // Last used weight for this exercise (for quick preset)
+    val prWeightKg: Float? = null  // Personal record weight for this exercise (for quick preset)
 )
 
 /**

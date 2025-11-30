@@ -27,9 +27,9 @@ fun App() {
         // Splash screen state
         var showSplash by remember { mutableStateOf(true) }
 
-        // Hide splash after a short delay (900ms matches parent project)
+        // Hide splash after animation completes (2500ms for full effect)
         LaunchedEffect(Unit) {
-            delay(900)
+            delay(2500)
             showSplash = false
         }
 

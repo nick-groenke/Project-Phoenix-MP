@@ -207,7 +207,6 @@ fun SingleExerciseScreen(
                             val tempRoutine = Routine(
                                 id = "${MainViewModel.TEMP_SINGLE_EXERCISE_PREFIX}${generateUUID()}",
                                 name = "Single Exercise: ${configuredExercise.exercise.name}",
-                                description = "Temporary routine for single exercise mode",
                                 exercises = listOf(configuredExercise)
                             )
 

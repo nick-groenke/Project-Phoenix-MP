@@ -7,6 +7,7 @@ import com.devil.phoenixproject.data.preferences.UserPreferences
 import com.devil.phoenixproject.data.repository.AutoStopUiState
 import com.devil.phoenixproject.data.repository.BleRepository
 import com.devil.phoenixproject.data.repository.ExerciseRepository
+import com.devil.phoenixproject.data.repository.GamificationRepository
 import com.devil.phoenixproject.data.repository.HandleActivityState
 import com.devil.phoenixproject.data.repository.PersonalRecordRepository
 import com.devil.phoenixproject.data.repository.RepNotification
@@ -30,9 +31,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -73,7 +76,8 @@ class MainViewModel constructor(
     val exerciseRepository: ExerciseRepository,
     val personalRecordRepository: PersonalRecordRepository,
     private val repCounter: RepCounterFromMachine,
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    private val gamificationRepository: GamificationRepository
 ) : ViewModel() {
 
     companion object {
@@ -165,6 +169,10 @@ class MainViewModel constructor(
     private val _prCelebrationEvent = MutableSharedFlow<PRCelebrationEvent>()
     val prCelebrationEvent: SharedFlow<PRCelebrationEvent> = _prCelebrationEvent.asSharedFlow()
 
+    // Badge Earned Events
+    private val _badgeEarnedEvents = MutableSharedFlow<List<Badge>>()
+    val badgeEarnedEvents: SharedFlow<List<Badge>> = _badgeEarnedEvents.asSharedFlow()
+
     // User preferences
     val userPreferences: StateFlow<UserPreferences> = preferencesManager.preferencesFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, UserPreferences())
@@ -197,6 +205,13 @@ class MainViewModel constructor(
 
     private val _currentSetIndex = MutableStateFlow(0)
     val currentSetIndex: StateFlow<Int> = _currentSetIndex.asStateFlow()
+
+    // Track skipped and completed exercise indices for routine navigation
+    private val _skippedExercises = MutableStateFlow<Set<Int>>(emptySet())
+    val skippedExercises: StateFlow<Set<Int>> = _skippedExercises.asStateFlow()
+
+    private val _completedExercises = MutableStateFlow<Set<Int>>(emptySet())
+    val completedExercises: StateFlow<Set<Int>> = _completedExercises.asStateFlow()
 
     // Weekly Programs
     val weeklyPrograms: StateFlow<List<com.devil.phoenixproject.data.local.WeeklyProgramWithDays>> =
@@ -634,13 +649,17 @@ class MainViewModel constructor(
              workoutRepository.saveSession(session)
              
              // Show Summary
-             val metrics = emptyList<WorkoutMetric>() // TODO: collectedMetrics
-             _workoutState.value = WorkoutState.SetSummary(
+             val metrics = collectedMetrics.toList()
+             val isEcho = params.workoutType is WorkoutType.Echo
+             val summary = calculateSetSummaryMetrics(
                  metrics = metrics,
-                 peakPower = 0f,
-                 averagePower = 0f,
-                 repCount = repCount.totalReps
+                 repCount = repCount.totalReps,
+                 fallbackWeightKg = params.weightPerCableKg,
+                 isEchoMode = isEcho,
+                 warmupRepsCount = repCount.warmupReps,
+                 workingRepsCount = repCount.workingReps
              )
+             _workoutState.value = summary
         }
     }
 
@@ -746,7 +765,109 @@ class MainViewModel constructor(
     }
 
     fun advanceToNextExercise() {
-        // TODO
+        val routine = _loadedRoutine.value ?: return
+        val nextIndex = _currentExerciseIndex.value + 1
+        if (nextIndex < routine.exercises.size) {
+            jumpToExercise(nextIndex)
+        }
+    }
+
+    /**
+     * Navigate to a specific exercise in the routine.
+     * Saves progress of current exercise if any reps completed.
+     */
+    fun jumpToExercise(index: Int) {
+        val routine = _loadedRoutine.value ?: return
+        if (index < 0 || index >= routine.exercises.size) return
+
+        // Save current exercise progress if we have any reps
+        val currentRepCount = _repCount.value
+        if (currentRepCount.workingReps > 0 && _workoutState.value !is WorkoutState.Completed) {
+            // Mark as completed if we did some work
+            _completedExercises.update { it + _currentExerciseIndex.value }
+            Logger.d("MainViewModel") { "Saving progress for exercise ${_currentExerciseIndex.value}: ${currentRepCount.workingReps} reps" }
+        } else if (_workoutState.value !is WorkoutState.Completed) {
+            // Mark as skipped if no reps done
+            _skippedExercises.update { it + _currentExerciseIndex.value }
+            Logger.d("MainViewModel") { "Skipping exercise ${_currentExerciseIndex.value}" }
+        }
+
+        // Cancel any active timers
+        restTimerJob?.cancel()
+        bodyweightTimerJob?.cancel()
+        resetAutoStopState()
+
+        // Navigate to new exercise
+        _currentExerciseIndex.value = index
+        _currentSetIndex.value = 0
+
+        // Load new exercise parameters
+        val exercise = routine.exercises[index]
+        val setReps = exercise.setReps.getOrNull(0)
+        val setWeight = exercise.setWeightsPerCableKg.getOrNull(0) ?: exercise.weightPerCableKg
+
+        _workoutParameters.update { params ->
+            params.copy(
+                workoutType = exercise.workoutType,
+                reps = setReps ?: exercise.reps,
+                weightPerCableKg = setWeight,
+                progressionRegressionKg = exercise.progressionKg,
+                warmupReps = 0,  // Routines don't track warmup reps per exercise
+                selectedExerciseId = exercise.exercise.id
+            )
+        }
+
+        // Reset workout state
+        _workoutState.value = WorkoutState.Idle
+        _repCount.value = RepCount()
+        repCounter.reset()
+
+        Logger.i("MainViewModel") { "Jumped to exercise $index: ${exercise.exercise.name}" }
+    }
+
+    /**
+     * Skip the current exercise and move to the next one.
+     */
+    fun skipCurrentExercise() {
+        val routine = _loadedRoutine.value ?: return
+        val nextIndex = _currentExerciseIndex.value + 1
+        if (nextIndex < routine.exercises.size) {
+            // Mark current as skipped (even if we had some progress)
+            _skippedExercises.update { it + _currentExerciseIndex.value }
+            jumpToExercise(nextIndex)
+        }
+    }
+
+    /**
+     * Go back to the previous exercise in the routine.
+     */
+    fun goToPreviousExercise() {
+        val prevIndex = _currentExerciseIndex.value - 1
+        if (prevIndex >= 0) {
+            jumpToExercise(prevIndex)
+        }
+    }
+
+    /**
+     * Check if current exercise can go back (not first in routine).
+     */
+    fun canGoBack(): Boolean {
+        return _loadedRoutine.value != null && _currentExerciseIndex.value > 0
+    }
+
+    /**
+     * Check if current exercise can skip forward (not last in routine).
+     */
+    fun canSkipForward(): Boolean {
+        val routine = _loadedRoutine.value ?: return false
+        return _currentExerciseIndex.value < routine.exercises.size - 1
+    }
+
+    /**
+     * Get list of exercise names in current routine (for navigation display).
+     */
+    fun getRoutineExerciseNames(): List<String> {
+        return _loadedRoutine.value?.exercises?.map { it.exercise.name } ?: emptyList()
     }
 
     fun deleteWorkout(sessionId: String) {
@@ -786,6 +907,8 @@ class MainViewModel constructor(
         _loadedRoutine.value = routine
         _currentExerciseIndex.value = 0
         _currentSetIndex.value = 0
+        _skippedExercises.value = emptySet()
+        _completedExercises.value = emptySet()
     }
 
     fun loadRoutineById(routineId: String) {
@@ -820,6 +943,104 @@ class MainViewModel constructor(
     fun getCurrentExercise(): RoutineExercise? {
         val routine = _loadedRoutine.value ?: return null
         return routine.exercises.getOrNull(_currentExerciseIndex.value)
+    }
+
+    // ========== Superset Support ==========
+
+    /**
+     * Get all exercises in the same superset as the current exercise.
+     * Returns empty list if current exercise is not in a superset.
+     */
+    private fun getCurrentSupersetExercises(): List<RoutineExercise> {
+        val routine = _loadedRoutine.value ?: return emptyList()
+        val currentExercise = getCurrentExercise() ?: return emptyList()
+        val supersetId = currentExercise.supersetGroupId ?: return emptyList()
+
+        return routine.exercises
+            .filter { it.supersetGroupId == supersetId }
+            .sortedBy { it.supersetOrder }
+    }
+
+    /**
+     * Check if the current exercise is part of a superset.
+     */
+    private fun isInSuperset(): Boolean {
+        return getCurrentExercise()?.supersetGroupId != null
+    }
+
+    /**
+     * Get the next exercise index in the superset rotation.
+     * Returns null if we've completed the superset cycle for the current set.
+     */
+    private fun getNextSupersetExerciseIndex(): Int? {
+        val routine = _loadedRoutine.value ?: return null
+        val currentExercise = getCurrentExercise() ?: return null
+        val supersetId = currentExercise.supersetGroupId ?: return null
+
+        val supersetExercises = getCurrentSupersetExercises()
+        val currentPositionInSuperset = supersetExercises.indexOf(currentExercise)
+
+        if (currentPositionInSuperset < supersetExercises.size - 1) {
+            // More exercises in this superset cycle
+            val nextSupersetExercise = supersetExercises[currentPositionInSuperset + 1]
+            return routine.exercises.indexOf(nextSupersetExercise)
+        }
+
+        return null // End of superset cycle
+    }
+
+    /**
+     * Get the first exercise in the current superset.
+     */
+    private fun getFirstSupersetExerciseIndex(): Int? {
+        val routine = _loadedRoutine.value ?: return null
+        val supersetExercises = getCurrentSupersetExercises()
+        if (supersetExercises.isEmpty()) return null
+
+        return routine.exercises.indexOf(supersetExercises.first())
+    }
+
+    /**
+     * Check if we're at the end of a superset cycle (last exercise in superset for current set).
+     */
+    private fun isAtEndOfSupersetCycle(): Boolean {
+        val currentExercise = getCurrentExercise() ?: return false
+        if (currentExercise.supersetGroupId == null) return false
+
+        val supersetExercises = getCurrentSupersetExercises()
+        return currentExercise == supersetExercises.lastOrNull()
+    }
+
+    /**
+     * Get the superset rest time (short rest between superset exercises).
+     */
+    private fun getSupersetRestSeconds(): Int {
+        return getCurrentExercise()?.supersetRestSeconds ?: 10
+    }
+
+    /**
+     * Find the next exercise after the current one (or after the current superset).
+     * Skips over exercises that are part of the current superset.
+     */
+    private fun findNextExerciseAfterCurrent(): Int? {
+        val routine = _loadedRoutine.value ?: return null
+        val currentExercise = getCurrentExercise() ?: return null
+        val currentSupersetId = currentExercise.supersetGroupId
+
+        // If in a superset, find the first exercise after the superset
+        if (currentSupersetId != null) {
+            val supersetExerciseIndices = routine.exercises
+                .mapIndexedNotNull { index, ex ->
+                    if (ex.supersetGroupId == currentSupersetId) index else null
+                }
+            val lastSupersetIndex = supersetExerciseIndices.maxOrNull() ?: _currentExerciseIndex.value
+            val nextIndex = lastSupersetIndex + 1
+            return if (nextIndex < routine.exercises.size) nextIndex else null
+        }
+
+        // Not in a superset - just go to next index
+        val nextIndex = _currentExerciseIndex.value + 1
+        return if (nextIndex < routine.exercises.size) nextIndex else null
     }
 
     // ========== Just Lift Features ==========
@@ -899,6 +1120,105 @@ class MainViewModel constructor(
             // TODO: Implement preferences storage for Just Lift defaults
             // preferencesManager.saveJustLiftDefaults(defaults)
             Logger.d("saveJustLiftDefaults: weight=${defaults.weightPerCableKg}kg, mode=${defaults.workoutModeId}")
+        }
+    }
+
+    // ========== Weight Adjustment Functions ==========
+
+    /**
+     * Adjust the weight during an active workout or rest period.
+     * This updates the workout parameters and optionally sends the updated weight to the machine.
+     *
+     * @param newWeightKg The new weight per cable in kg
+     * @param sendToMachine Whether to send the command to the machine immediately
+     */
+    fun adjustWeight(newWeightKg: Float, sendToMachine: Boolean = true) {
+        val clampedWeight = newWeightKg.coerceIn(0f, 110f) // Max 110kg per cable (220kg total)
+
+        Logger.d("MainViewModel: Adjusting weight to $clampedWeight kg (sendToMachine=$sendToMachine)")
+
+        // Update workout parameters
+        _workoutParameters.update { params ->
+            params.copy(weightPerCableKg = clampedWeight)
+        }
+
+        // If workout is active, send updated weight to machine
+        if (sendToMachine && _workoutState.value is WorkoutState.Active) {
+            viewModelScope.launch {
+                sendWeightUpdateToMachine(clampedWeight)
+            }
+        }
+    }
+
+    /**
+     * Increment weight by a specific amount.
+     */
+    fun incrementWeight(amount: Float = 0.5f) {
+        val currentWeight = _workoutParameters.value.weightPerCableKg
+        adjustWeight(currentWeight + amount)
+    }
+
+    /**
+     * Decrement weight by a specific amount.
+     */
+    fun decrementWeight(amount: Float = 0.5f) {
+        val currentWeight = _workoutParameters.value.weightPerCableKg
+        adjustWeight(currentWeight - amount)
+    }
+
+    /**
+     * Set weight to a specific preset value.
+     */
+    fun setWeightPreset(presetWeightKg: Float) {
+        adjustWeight(presetWeightKg)
+    }
+
+    /**
+     * Get the last used weight for a specific exercise.
+     */
+    suspend fun getLastWeightForExercise(exerciseId: String): Float? {
+        return workoutRepository.getAllSessions()
+            .first()
+            .filter { it.exerciseId == exerciseId }
+            .sortedByDescending { it.timestamp }
+            .firstOrNull()
+            ?.weightPerCableKg
+    }
+
+    /**
+     * Get the PR weight for a specific exercise.
+     */
+    suspend fun getPrWeightForExercise(exerciseId: String): Float? {
+        return workoutRepository.getAllPersonalRecords()
+            .first()
+            .filter { it.exerciseId == exerciseId }
+            .maxOfOrNull { it.weightPerCableKg }
+    }
+
+    /**
+     * Send weight update command to the machine.
+     * This resends the workout command with updated weight.
+     */
+    private suspend fun sendWeightUpdateToMachine(weightKg: Float) {
+        try {
+            val params = _workoutParameters.value
+
+            // Create and send updated workout command
+            val command = if (params.workoutType is WorkoutType.Program) {
+                BlePacketFactory.createWorkoutCommand(
+                    params.workoutType,
+                    weightKg,
+                    params.reps
+                )
+            } else {
+                // For Echo mode, weight is dynamic based on position - no update needed
+                return
+            }
+
+            bleRepository.sendWorkoutCommand(command)
+            Logger.d("Weight update sent to machine: $weightKg kg")
+        } catch (e: Exception) {
+            Logger.e(e) { "Failed to send weight update: ${e.message}" }
         }
     }
 
@@ -1111,29 +1431,25 @@ class MainViewModel constructor(
             saveWorkoutSession()
 
             // Calculate metrics for summary
-            val peakPerCableKg = if (collectedMetrics.isNotEmpty()) {
-                collectedMetrics.maxOf { it.totalLoad } / 2f
-            } else {
-                params.weightPerCableKg
-            }
-
-            val averagePerCableKg = if (collectedMetrics.isNotEmpty()) {
-                collectedMetrics.map { it.totalLoad / 2f }.average().toFloat()
-            } else {
-                params.weightPerCableKg
-            }
-
             val completedReps = _repCount.value.workingReps
+            val warmupReps = _repCount.value.warmupReps
+            val metricsList = collectedMetrics.toList()
 
-            // Show set summary
-            _workoutState.value = WorkoutState.SetSummary(
-                metrics = collectedMetrics.toList(),
-                peakPower = peakPerCableKg,
-                averagePower = averagePerCableKg,
-                repCount = completedReps
+            // Calculate enhanced metrics for summary
+            val isEcho = params.workoutType is WorkoutType.Echo
+            val summary = calculateSetSummaryMetrics(
+                metrics = metricsList,
+                repCount = completedReps,
+                fallbackWeightKg = params.weightPerCableKg,
+                isEchoMode = isEcho,
+                warmupRepsCount = warmupReps,
+                workingRepsCount = completedReps
             )
 
-            Logger.d("Set summary: peakPerCableKg=$peakPerCableKg, avgPerCableKg=$averagePerCableKg, reps=$completedReps")
+            // Show set summary
+            _workoutState.value = summary
+
+            Logger.d("Set summary: heaviest=${summary.heaviestLiftKgPerCable}kg, reps=$completedReps, duration=${summary.durationMs}ms")
 
             // Handle based on workout mode
             if (isJustLift) {
@@ -1235,6 +1551,160 @@ class MainViewModel constructor(
                 }
             }
         }
+
+        // Update gamification stats and check for badges
+        try {
+            gamificationRepository.updateStats()
+            val newBadges = gamificationRepository.checkAndAwardBadges()
+            if (newBadges.isNotEmpty()) {
+                _badgeEarnedEvents.emit(newBadges)
+                Logger.d("New badges earned: ${newBadges.map { it.name }}")
+            }
+        } catch (e: Exception) {
+            Logger.e(e) { "Error updating gamification: ${e.message}" }
+        }
+    }
+
+    /**
+     * Calculate enhanced metrics for the set summary display.
+     * Separates concentric (lifting) vs eccentric (lowering) phases based on velocity.
+     * For Echo mode, also calculates phase-aware metrics (warmup, working, burnout).
+     */
+    private fun calculateSetSummaryMetrics(
+        metrics: List<WorkoutMetric>,
+        repCount: Int,
+        fallbackWeightKg: Float,
+        isEchoMode: Boolean = false,
+        warmupRepsCount: Int = 0,
+        workingRepsCount: Int = 0
+    ): WorkoutState.SetSummary {
+        if (metrics.isEmpty()) {
+            return WorkoutState.SetSummary(
+                metrics = metrics,
+                peakPower = 0f,
+                averagePower = 0f,
+                repCount = repCount,
+                heaviestLiftKgPerCable = fallbackWeightKg
+            )
+        }
+
+        // Duration from first to last metric
+        val durationMs = metrics.last().timestamp - metrics.first().timestamp
+
+        // Heaviest lift (max load per cable)
+        val heaviestLiftKgPerCable = metrics.maxOf { maxOf(it.loadA, it.loadB) }
+
+        // Total volume = average load × reps
+        val avgTotalLoad = metrics.map { it.totalLoad }.average().toFloat()
+        val totalVolumeKg = avgTotalLoad * repCount
+
+        // Separate concentric (velocity > 0) and eccentric (velocity < 0) phases
+        val concentricMetrics = metrics.filter { it.velocityA > 10 || it.velocityB > 10 }
+        val eccentricMetrics = metrics.filter { it.velocityA < -10 || it.velocityB < -10 }
+
+        // Peak forces per phase
+        val peakConcentricA = concentricMetrics.maxOfOrNull { it.loadA } ?: 0f
+        val peakConcentricB = concentricMetrics.maxOfOrNull { it.loadB } ?: 0f
+        val peakEccentricA = eccentricMetrics.maxOfOrNull { it.loadA } ?: 0f
+        val peakEccentricB = eccentricMetrics.maxOfOrNull { it.loadB } ?: 0f
+
+        // Average forces per phase
+        val avgConcentricA = if (concentricMetrics.isNotEmpty())
+            concentricMetrics.map { it.loadA }.average().toFloat() else 0f
+        val avgConcentricB = if (concentricMetrics.isNotEmpty())
+            concentricMetrics.map { it.loadB }.average().toFloat() else 0f
+        val avgEccentricA = if (eccentricMetrics.isNotEmpty())
+            eccentricMetrics.map { it.loadA }.average().toFloat() else 0f
+        val avgEccentricB = if (eccentricMetrics.isNotEmpty())
+            eccentricMetrics.map { it.loadB }.average().toFloat() else 0f
+
+        // Estimate calories: Work = Force × Distance, roughly 4.184 J per calorie
+        // Simplified estimate: totalVolume (kg) × reps × 0.5m ROM × 9.81 / 4184
+        val estimatedCalories = (totalVolumeKg * 0.5f * 9.81f / 4184f).coerceAtLeast(1f)
+
+        // Legacy power values (average load per cable)
+        val peakPower = heaviestLiftKgPerCable
+        val averagePower = metrics.map { it.totalLoad / 2f }.average().toFloat()
+
+        // Echo Mode Phase-Aware Metrics
+        var warmupAvgWeightKg = 0f
+        var workingAvgWeightKg = 0f
+        var burnoutAvgWeightKg = 0f
+        var peakWeightKg = 0f
+        var burnoutReps = 0
+
+        if (isEchoMode && metrics.size > 10) {
+            // Detect phases by analyzing weight progression
+            // Echo mode: weight increases (warmup) -> stabilizes (working) -> decreases (burnout)
+            val weightSamples = metrics.map { maxOf(it.loadA, it.loadB) }
+            peakWeightKg = weightSamples.maxOrNull() ?: 0f
+            val peakThreshold = peakWeightKg * 0.9f  // Within 90% of peak is "working" phase
+
+            // Find peak indices
+            val peakIndices = weightSamples.indices.filter { weightSamples[it] >= peakThreshold }
+
+            if (peakIndices.isNotEmpty()) {
+                val firstPeakIndex = peakIndices.first()
+                val lastPeakIndex = peakIndices.last()
+
+                // Warmup phase: samples before first peak
+                val warmupSamples = weightSamples.take(firstPeakIndex)
+                warmupAvgWeightKg = if (warmupSamples.isNotEmpty())
+                    warmupSamples.average().toFloat() else 0f
+
+                // Working phase: samples around peak
+                val workingSamples = weightSamples.subList(firstPeakIndex, (lastPeakIndex + 1).coerceAtMost(weightSamples.size))
+                workingAvgWeightKg = if (workingSamples.isNotEmpty())
+                    workingSamples.average().toFloat() else peakWeightKg
+
+                // Burnout phase: samples after last peak
+                val burnoutSamples = if (lastPeakIndex < weightSamples.lastIndex)
+                    weightSamples.drop(lastPeakIndex + 1) else emptyList()
+                burnoutAvgWeightKg = if (burnoutSamples.isNotEmpty())
+                    burnoutSamples.average().toFloat() else 0f
+
+                // Estimate burnout reps based on weight decline pattern
+                // Total reps = warmup + working + burnout
+                val totalReps = warmupRepsCount + workingRepsCount
+                if (burnoutSamples.isNotEmpty() && totalReps > 0) {
+                    // Estimate burnout reps proportionally based on samples
+                    val burnoutRatio = burnoutSamples.size.toFloat() / weightSamples.size.toFloat()
+                    burnoutReps = (totalReps * burnoutRatio).toInt().coerceAtLeast(0)
+                }
+            } else {
+                // No clear peak - treat all as working phase
+                workingAvgWeightKg = weightSamples.average().toFloat()
+                peakWeightKg = workingAvgWeightKg
+            }
+        }
+
+        return WorkoutState.SetSummary(
+            metrics = metrics,
+            peakPower = peakPower,
+            averagePower = averagePower,
+            repCount = repCount,
+            durationMs = durationMs,
+            totalVolumeKg = totalVolumeKg,
+            heaviestLiftKgPerCable = heaviestLiftKgPerCable,
+            peakForceConcentricA = peakConcentricA,
+            peakForceConcentricB = peakConcentricB,
+            peakForceEccentricA = peakEccentricA,
+            peakForceEccentricB = peakEccentricB,
+            avgForceConcentricA = avgConcentricA,
+            avgForceConcentricB = avgConcentricB,
+            avgForceEccentricA = avgEccentricA,
+            avgForceEccentricB = avgEccentricB,
+            estimatedCalories = estimatedCalories,
+            // Echo Mode Phase Metrics
+            isEchoMode = isEchoMode,
+            warmupReps = warmupRepsCount,
+            workingReps = workingRepsCount,
+            burnoutReps = burnoutReps,
+            warmupAvgWeightKg = warmupAvgWeightKg,
+            workingAvgWeightKg = workingAvgWeightKg,
+            burnoutAvgWeightKg = burnoutAvgWeightKg,
+            peakWeightKg = peakWeightKg
+        )
     }
 
     /**
@@ -1268,11 +1738,39 @@ class MainViewModel constructor(
             val routine = _loadedRoutine.value
             val currentExercise = routine?.exercises?.getOrNull(_currentExerciseIndex.value)
 
+            // Load preset weights for the current exercise
+            val exerciseId = currentExercise?.exercise?.id ?: _workoutParameters.value.selectedExerciseId
+            if (exerciseId != null) {
+                val lastWeight = getLastWeightForExercise(exerciseId)
+                val prWeight = getPrWeightForExercise(exerciseId)
+                _workoutParameters.value = _workoutParameters.value.copy(
+                    lastUsedWeightKg = lastWeight,
+                    prWeightKg = prWeight
+                )
+            }
+
             val completedSetIndex = _currentSetIndex.value
-            val restDuration = currentExercise?.getRestForSet(completedSetIndex)?.takeIf { it > 0 } ?: 90
+
+            // Determine rest duration:
+            // - If in a superset and NOT at the end of the cycle, use short superset rest
+            // - Otherwise, use the normal per-set rest time
+            val isInSupersetTransition = isInSuperset() && !isAtEndOfSupersetCycle()
+            val restDuration = if (isInSupersetTransition) {
+                getSupersetRestSeconds().coerceAtLeast(5) // Min 5s for superset transitions
+            } else {
+                currentExercise?.getRestForSet(completedSetIndex)?.takeIf { it > 0 } ?: 90
+            }
             val autoplay = autoplayEnabled.value
 
             val isSingleExercise = isSingleExerciseMode()
+
+            // Determine superset label for display
+            val supersetLabel = if (isInSupersetTransition) {
+                val supersetExercises = getCurrentSupersetExercises()
+                val supersetGroupIds = routine?.getSupersetGroupIds()?.toList() ?: emptyList()
+                val groupIndex = supersetGroupIds.indexOf(currentExercise?.supersetGroupId)
+                if (groupIndex >= 0) "Superset ${('A' + groupIndex)}" else "Superset"
+            } else null
 
             // Countdown
             for (i in restDuration downTo 1) {
@@ -1283,7 +1781,9 @@ class MainViewModel constructor(
                     nextExerciseName = nextName,
                     isLastExercise = calculateIsLastExercise(isSingleExercise, currentExercise, routine),
                     currentSet = _currentSetIndex.value + 1,
-                    totalSets = currentExercise?.setReps?.size ?: 0
+                    totalSets = currentExercise?.setReps?.size ?: 0,
+                    isSupersetTransition = isInSupersetTransition,
+                    supersetLabel = supersetLabel
                 )
                 delay(1000)
             }
@@ -1301,7 +1801,9 @@ class MainViewModel constructor(
                     nextExerciseName = calculateNextExerciseName(isSingleExercise, currentExercise, routine),
                     isLastExercise = calculateIsLastExercise(isSingleExercise, currentExercise, routine),
                     currentSet = _currentSetIndex.value + 1,
-                    totalSets = currentExercise?.setReps?.size ?: 0
+                    totalSets = currentExercise?.setReps?.size ?: 0,
+                    isSupersetTransition = isInSupersetTransition,
+                    supersetLabel = supersetLabel
                 )
             }
         }
@@ -1384,6 +1886,7 @@ class MainViewModel constructor(
 
     /**
      * Progress to the next set or exercise in a routine.
+     * Handles superset progression: cycles through superset exercises before advancing sets.
      */
     private fun startNextSetOrExercise() {
         val currentState = _workoutState.value
@@ -1393,8 +1896,70 @@ class MainViewModel constructor(
         val routine = _loadedRoutine.value ?: return
         val currentExercise = routine.exercises.getOrNull(_currentExerciseIndex.value) ?: return
 
-        if (_currentSetIndex.value < currentExercise.setReps.size - 1) {
-            // More sets in current exercise
+        // Check for superset progression
+        if (isInSuperset()) {
+            val nextSupersetIndex = getNextSupersetExerciseIndex()
+
+            if (nextSupersetIndex != null) {
+                // More exercises in this superset cycle - move to next superset exercise (same set)
+                _currentExerciseIndex.value = nextSupersetIndex
+                // Don't change set index - we're cycling through the superset
+
+                val nextExercise = routine.exercises[nextSupersetIndex]
+                val nextSetReps = nextExercise.setReps.getOrNull(_currentSetIndex.value)
+                val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(_currentSetIndex.value)
+                    ?: nextExercise.weightPerCableKg
+
+                _workoutParameters.value = _workoutParameters.value.copy(
+                    weightPerCableKg = nextSetWeight,
+                    reps = nextSetReps ?: 0,
+                    workoutType = nextExercise.workoutType,
+                    progressionRegressionKg = nextExercise.progressionKg,
+                    selectedExerciseId = nextExercise.exercise.id,
+                    isAMRAP = nextSetReps == null
+                )
+
+                repCounter.resetCountsOnly()
+                resetAutoStopState()
+                startWorkout(skipCountdown = true)
+                return
+            } else {
+                // End of superset cycle - check if more sets in superset
+                val supersetExercises = getCurrentSupersetExercises()
+                val minSetsInSuperset = supersetExercises.minOfOrNull { it.setReps.size } ?: 0
+
+                if (_currentSetIndex.value < minSetsInSuperset - 1) {
+                    // More sets - go back to first exercise in superset
+                    val firstSupersetIndex = getFirstSupersetExerciseIndex() ?: return
+                    _currentSetIndex.value++
+                    _currentExerciseIndex.value = firstSupersetIndex
+
+                    val nextExercise = routine.exercises[firstSupersetIndex]
+                    val nextSetReps = nextExercise.setReps.getOrNull(_currentSetIndex.value)
+                    val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(_currentSetIndex.value)
+                        ?: nextExercise.weightPerCableKg
+
+                    _workoutParameters.value = _workoutParameters.value.copy(
+                        weightPerCableKg = nextSetWeight,
+                        reps = nextSetReps ?: 0,
+                        workoutType = nextExercise.workoutType,
+                        progressionRegressionKg = nextExercise.progressionKg,
+                        selectedExerciseId = nextExercise.exercise.id,
+                        isAMRAP = nextSetReps == null
+                    )
+
+                    repCounter.resetCountsOnly()
+                    resetAutoStopState()
+                    startWorkout(skipCountdown = true)
+                    return
+                }
+                // Superset complete - fall through to move to next exercise after superset
+            }
+        }
+
+        // Normal (non-superset) progression
+        if (_currentSetIndex.value < currentExercise.setReps.size - 1 && !isInSuperset()) {
+            // More sets in current exercise (non-superset)
             _currentSetIndex.value++
             val targetReps = currentExercise.setReps[_currentSetIndex.value]
             val setWeight = currentExercise.setWeightsPerCableKg.getOrNull(_currentSetIndex.value)
@@ -1410,12 +1975,14 @@ class MainViewModel constructor(
             resetAutoStopState()
             startWorkout(skipCountdown = true)
         } else {
-            // Move to next exercise
-            if (_currentExerciseIndex.value < routine.exercises.size - 1) {
-                _currentExerciseIndex.value++
+            // Move to next exercise (or find next after superset)
+            val nextExerciseIndex = findNextExerciseAfterCurrent()
+
+            if (nextExerciseIndex != null && nextExerciseIndex < routine.exercises.size) {
+                _currentExerciseIndex.value = nextExerciseIndex
                 _currentSetIndex.value = 0
 
-                val nextExercise = routine.exercises[_currentExerciseIndex.value]
+                val nextExercise = routine.exercises[nextExerciseIndex]
                 val nextSetReps = nextExercise.setReps.getOrNull(0)
                 val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(0)
                     ?: nextExercise.weightPerCableKg

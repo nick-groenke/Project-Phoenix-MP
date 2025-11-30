@@ -1,8 +1,11 @@
 package com.devil.phoenixproject.presentation.screen
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
@@ -24,7 +27,6 @@ import androidx.navigation.compose.rememberNavController
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.domain.model.ConnectionState
 import com.devil.phoenixproject.presentation.components.ConnectionLostDialog
-import com.devil.phoenixproject.presentation.components.ThemeToggle
 import com.devil.phoenixproject.presentation.navigation.NavGraph
 import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
@@ -114,7 +116,7 @@ fun EnhancedMainScreen(
                             // Main title - either dynamic or default based on route
                             Text(
                                 text = if (topBarTitle.isNotEmpty()) topBarTitle else getScreenTitle(currentRoute),
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
@@ -182,12 +184,6 @@ fun EnhancedMainScreen(
                                     )
                                 }
                             }
-                        )
-
-                        // Theme toggle
-                        ThemeToggle(
-                            mode = themeMode,
-                            onModeChange = onThemeModeChange
                         )
                     }
                 )
@@ -317,47 +313,68 @@ fun EnhancedMainScreen(
 /**
  * Connection status indicator with icon and label.
  * Tappable to toggle connection state.
+ * Features a prominent circular bordered container with status color.
  */
 @Composable
 private fun ConnectionStatusIndicator(
     connectionState: ConnectionState,
     onToggleConnection: () -> Unit
 ) {
+    val statusColor = when (connectionState) {
+        is ConnectionState.Connected -> Color(0xFF22C55E) // green-500
+        is ConnectionState.Connecting -> Color(0xFFFBBF24) // yellow-400
+        is ConnectionState.Disconnected -> Color(0xFFEF4444) // red-500
+        is ConnectionState.Scanning -> Color(0xFF3B82F6) // blue-500
+        is ConnectionState.Error -> Color(0xFFEF4444) // red-500
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier
             .padding(horizontal = 4.dp)
-            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
             .clickable(
                 onClick = onToggleConnection,
                 role = Role.Button
             )
     ) {
-        Icon(
-            imageVector = when (connectionState) {
-                is ConnectionState.Connected -> Icons.Default.Bluetooth
-                is ConnectionState.Connecting -> Icons.AutoMirrored.Filled.BluetoothSearching
-                is ConnectionState.Disconnected -> Icons.Default.BluetoothDisabled
-                is ConnectionState.Scanning -> Icons.AutoMirrored.Filled.BluetoothSearching
-                is ConnectionState.Error -> Icons.Default.BluetoothDisabled
-            },
-            contentDescription = when (connectionState) {
-                is ConnectionState.Connected -> "Connected to machine. Tap to disconnect"
-                is ConnectionState.Connecting -> "Connecting to machine"
-                is ConnectionState.Disconnected -> "Disconnected. Tap to connect"
-                is ConnectionState.Scanning -> "Scanning for machine"
-                is ConnectionState.Error -> "Connection error. Tap to retry"
-            },
-            tint = when (connectionState) {
-                is ConnectionState.Connected -> Color(0xFF22C55E) // green-500
-                is ConnectionState.Connecting -> Color(0xFFFBBF24) // yellow-400
-                is ConnectionState.Disconnected -> Color(0xFFEF4444) // red-500
-                is ConnectionState.Scanning -> Color(0xFF3B82F6) // blue-500
-                is ConnectionState.Error -> Color(0xFFEF4444) // red-500
-            },
-            modifier = Modifier.size(20.dp)
-        )
+        // Circular bordered container for the icon
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .border(
+                    width = 2.dp,
+                    color = statusColor,
+                    shape = CircleShape
+                )
+                .background(
+                    color = statusColor.copy(alpha = 0.15f),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = when (connectionState) {
+                    is ConnectionState.Connected -> Icons.Default.Bluetooth
+                    is ConnectionState.Connecting -> Icons.AutoMirrored.Filled.BluetoothSearching
+                    is ConnectionState.Disconnected -> Icons.Default.BluetoothDisabled
+                    is ConnectionState.Scanning -> Icons.AutoMirrored.Filled.BluetoothSearching
+                    is ConnectionState.Error -> Icons.Default.BluetoothDisabled
+                },
+                contentDescription = when (connectionState) {
+                    is ConnectionState.Connected -> "Connected to machine. Tap to disconnect"
+                    is ConnectionState.Connecting -> "Connecting to machine"
+                    is ConnectionState.Disconnected -> "Disconnected. Tap to connect"
+                    is ConnectionState.Scanning -> "Scanning for machine"
+                    is ConnectionState.Error -> "Connection error. Tap to retry"
+                },
+                tint = statusColor,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
         Text(
             text = when (connectionState) {
                 is ConnectionState.Connected -> "Connected"
@@ -366,14 +383,8 @@ private fun ConnectionStatusIndicator(
                 is ConnectionState.Scanning -> "Scanning"
                 is ConnectionState.Error -> "Error"
             },
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-            color = when (connectionState) {
-                is ConnectionState.Connected -> Color(0xFF22C55E)
-                is ConnectionState.Connecting -> Color(0xFFFBBF24)
-                is ConnectionState.Disconnected -> Color(0xFFEF4444)
-                is ConnectionState.Scanning -> Color(0xFF3B82F6)
-                is ConnectionState.Error -> Color(0xFFEF4444)
-            },
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = statusColor,
             maxLines = 1
         )
     }

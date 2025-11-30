@@ -1,26 +1,24 @@
 package com.devil.phoenixproject.presentation.screen
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.devil.phoenixproject.data.repository.ExerciseRepository
-import com.devil.phoenixproject.domain.model.WorkoutState
+import com.devil.phoenixproject.domain.model.*
+import com.devil.phoenixproject.presentation.components.BadgeCelebrationQueue
+import com.devil.phoenixproject.presentation.components.ConnectingOverlay
+import com.devil.phoenixproject.presentation.components.ConnectionErrorDialog
+import com.devil.phoenixproject.presentation.components.HapticFeedbackEffect
+import com.devil.phoenixproject.presentation.components.PRCelebrationDialog
+import org.koin.compose.koinInject
+import com.devil.phoenixproject.data.repository.GamificationRepository
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
-import com.devil.phoenixproject.util.format
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
- * Active workout screen - displays workout controls during an active workout
- * TODO: Full implementation with WorkoutTab and real-time metrics
+ * Active Workout screen - displays workout controls and metrics during an active workout.
+ * This screen is shown when a workout is in progress.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,204 +28,201 @@ fun ActiveWorkoutScreen(
     exerciseRepository: ExerciseRepository
 ) {
     val workoutState by viewModel.workoutState.collectAsState()
+    val currentMetric by viewModel.currentMetric.collectAsState()
+    val workoutParameters by viewModel.workoutParameters.collectAsState()
     val repCount by viewModel.repCount.collectAsState()
+    val repRanges by viewModel.repRanges.collectAsState()
+    val autoStopState by viewModel.autoStopState.collectAsState()
+    val weightUnit by viewModel.weightUnit.collectAsState()
+    val enableVideoPlayback by viewModel.enableVideoPlayback.collectAsState()
+    val loadedRoutine by viewModel.loadedRoutine.collectAsState()
+    val currentExerciseIndex by viewModel.currentExerciseIndex.collectAsState()
+    val hapticEvents = viewModel.hapticEvents
+    val connectionState by viewModel.connectionState.collectAsState()
     val isAutoConnecting by viewModel.isAutoConnecting.collectAsState()
     val connectionError by viewModel.connectionError.collectAsState()
+    val userPreferences by viewModel.userPreferences.collectAsState()
 
-    // Set title based on workout state
-    LaunchedEffect(workoutState) {
-        val title = when (workoutState) {
-            is WorkoutState.Active -> "Working Out"
-            is WorkoutState.Countdown -> "Get Ready"
-            is WorkoutState.SetSummary -> "Set Complete"
-            is WorkoutState.Resting -> "Rest"
-            is WorkoutState.Completed -> "Workout Complete"
-            else -> "Workout"
+    // State for confirmation dialog
+    var showExitConfirmation by remember { mutableStateOf(false) }
+
+    // PR Celebration state
+    var prCelebrationEvent by remember { mutableStateOf<PRCelebrationEvent?>(null) }
+    LaunchedEffect(Unit) {
+        viewModel.prCelebrationEvent.collect { event ->
+            prCelebrationEvent = event
         }
-        viewModel.updateTopBarTitle(title)
     }
 
-    val backgroundGradient = Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF0F172A),
-            Color(0xFF1E1B4B),
-            Color(0xFF172554)
-        )
+    // Badge Celebration state
+    val gamificationRepository: GamificationRepository = koinInject()
+    var earnedBadges by remember { mutableStateOf<List<Badge>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        viewModel.badgeEarnedEvents.collect { badges ->
+            earnedBadges = badges
+        }
+    }
+
+    // Dynamic title based on workout type
+    val screenTitle = remember(loadedRoutine, workoutParameters.isJustLift) {
+        when {
+            loadedRoutine != null -> loadedRoutine?.name ?: "Routine"
+            workoutParameters.isJustLift -> "Just Lift"
+            else -> "Single Exercise"
+        }
+    }
+
+    // Set global title
+    LaunchedEffect(screenTitle) {
+        viewModel.updateTopBarTitle(screenTitle)
+    }
+
+    // Handle Back Button (System + Top Bar)
+    LaunchedEffect(Unit) {
+        val onBack: () -> Unit = {
+            // Show confirmation if workout is active
+            if (viewModel.workoutState.value is WorkoutState.Active ||
+                viewModel.workoutState.value is WorkoutState.Resting ||
+                viewModel.workoutState.value is WorkoutState.Countdown
+            ) {
+                showExitConfirmation = true
+            } else {
+                navController.navigateUp()
+            }
+        }
+        viewModel.setTopBarBackAction(onBack)
+    }
+
+    // Clean up back action
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.clearTopBarBackAction()
+        }
+    }
+
+    // Haptic feedback effect
+    HapticFeedbackEffect(hapticEvents = hapticEvents)
+
+    // Watch for workout completion and navigate back
+    // For Just Lift, navigate back when state becomes Idle (after auto-reset)
+    LaunchedEffect(workoutState, workoutParameters) {
+        when {
+            workoutState is WorkoutState.Completed -> {
+                delay(2000)
+                navController.navigateUp()
+            }
+            workoutState is WorkoutState.Idle && workoutParameters.isJustLift -> {
+                // Just Lift completed and reset to Idle - navigate back to Just Lift screen
+                navController.navigateUp()
+            }
+            workoutState is WorkoutState.Error -> {
+                // Show error for 3 seconds then navigate back
+                delay(3000)
+                navController.navigateUp()
+            }
+        }
+    }
+
+    WorkoutTab(
+        connectionState = connectionState,
+        workoutState = workoutState,
+        currentMetric = currentMetric,
+        workoutParameters = workoutParameters,
+        repCount = repCount,
+        repRanges = repRanges,
+        autoStopState = autoStopState,
+        weightUnit = weightUnit,
+        enableVideoPlayback = enableVideoPlayback,
+        exerciseRepository = exerciseRepository,
+        isWorkoutSetupDialogVisible = false,
+        hapticEvents = hapticEvents,
+        loadedRoutine = loadedRoutine,
+        currentExerciseIndex = currentExerciseIndex,
+        autoplayEnabled = userPreferences.autoplayEnabled,
+        kgToDisplay = viewModel::kgToDisplay,
+        displayToKg = viewModel::displayToKg,
+        formatWeight = viewModel::formatWeight,
+        onScan = { viewModel.startScanning() },
+        onDisconnect = { viewModel.disconnect() },
+        onStartWorkout = {
+            viewModel.ensureConnection(
+                onConnected = { viewModel.startWorkout() },
+                onFailed = { /* Error shown via StateFlow */ }
+            )
+        },
+        onStopWorkout = { showExitConfirmation = true },
+        onSkipRest = { viewModel.skipRest() },
+        onProceedFromSummary = { viewModel.proceedFromSummary() },
+        onResetForNewWorkout = { viewModel.resetForNewWorkout() },
+        onStartNextExercise = { viewModel.advanceToNextExercise() },
+        onUpdateParameters = { viewModel.updateWorkoutParameters(it) },
+        onShowWorkoutSetupDialog = { /* Not used in ActiveWorkoutScreen */ },
+        onHideWorkoutSetupDialog = { /* Not used in ActiveWorkoutScreen */ },
+        showConnectionCard = false,
+        showWorkoutSetupCard = false
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(backgroundGradient)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            // Workout state display
-            when (val state = workoutState) {
-                is WorkoutState.Idle -> {
-                    Text(
-                        text = "Ready to Start",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                is WorkoutState.Countdown -> {
-                    Text(
-                        text = "${state.secondsRemaining}",
-                        style = MaterialTheme.typography.displayLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Get Ready!",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                is WorkoutState.Active -> {
-                    Text(
-                        text = "${repCount.workingReps}",
-                        style = MaterialTheme.typography.displayLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Reps",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Warmup: ${repCount.warmupReps}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                is WorkoutState.SetSummary -> {
-                    Text(
-                        text = "Set Complete!",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Reps: ${state.repCount}",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Peak Power: ${state.peakPower.format(1)} W",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Avg Power: ${state.averagePower.format(1)} W",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                is WorkoutState.Resting -> {
-                    Text(
-                        text = "${state.restSecondsRemaining}",
-                        style = MaterialTheme.typography.displayLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.tertiary
-                    )
-                    Text(
-                        text = "Rest",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Next: ${state.nextExerciseName}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                is WorkoutState.Completed -> {
-                    Icon(
-                        Icons.Default.CheckCircle,
-                        contentDescription = "Complete",
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Workout Complete!",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                else -> {
-                    Text(
-                        text = "Workout in progress...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Control buttons
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                if (workoutState is WorkoutState.Active) {
-                    Button(
-                        onClick = { viewModel.pauseWorkout() },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        Icon(Icons.Default.Pause, contentDescription = "Pause")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Pause")
-                    }
-                }
-
-                if (workoutState is WorkoutState.Completed || workoutState is WorkoutState.SetSummary) {
-                    Button(
-                        onClick = {
-                            viewModel.resetForNewWorkout()
-                            navController.popBackStack()
-                        }
-                    ) {
-                        Text("Done")
-                    }
-                }
-
-                OutlinedButton(
+    // Exit confirmation dialog
+    if (showExitConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showExitConfirmation = false },
+            title = { Text("Exit Workout?") },
+            text = { Text("The workout is currently active. Are you sure you want to exit?") },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = MaterialTheme.shapes.medium,
+            confirmButton = {
+                Button(
                     onClick = {
                         viewModel.stopWorkout()
-                        navController.popBackStack()
+                        showExitConfirmation = false
+                        navController.navigateUp()
                     }
                 ) {
-                    Icon(Icons.Default.Stop, contentDescription = "Stop")
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("End")
+                    Text("Exit")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitConfirmation = false }) {
+                    Text("Cancel")
                 }
             }
-        }
+        )
+    }
 
-        // Auto-connect UI overlays
-        if (isAutoConnecting) {
-            com.devil.phoenixproject.presentation.components.ConnectingOverlay(
-                onCancel = { viewModel.cancelAutoConnecting() }
-            )
-        }
+    // Auto-connect UI overlays
+    if (isAutoConnecting) {
+        ConnectingOverlay(
+            onCancel = { viewModel.cancelAutoConnecting() }
+        )
+    }
 
-        connectionError?.let { error ->
-            com.devil.phoenixproject.presentation.components.ConnectionErrorDialog(
-                message = error,
-                onDismiss = { viewModel.clearConnectionError() }
-            )
-        }
+    connectionError?.let { error ->
+        ConnectionErrorDialog(
+            message = error,
+            onDismiss = { viewModel.clearConnectionError() }
+        )
+    }
+
+    // PR Celebration Dialog
+    prCelebrationEvent?.let { event ->
+        PRCelebrationDialog(
+            show = true,
+            exerciseName = event.exerciseName,
+            weight = "${viewModel.formatWeight(event.weightPerCableKg, weightUnit)}/cable × ${event.reps} reps",
+            onDismiss = { prCelebrationEvent = null }
+        )
+    }
+
+    // Badge Celebration Dialog Queue
+    if (earnedBadges.isNotEmpty()) {
+        BadgeCelebrationQueue(
+            badges = earnedBadges,
+            onAllCelebrated = { earnedBadges = emptyList() },
+            onMarkCelebrated = { badgeId ->
+                kotlinx.coroutines.MainScope().launch {
+                    gamificationRepository.markBadgeCelebrated(badgeId)
+                }
+            }
+        )
     }
 }

@@ -96,4 +96,35 @@ interface ExerciseRepository {
      * @return Result with count of exercises updated, or error
      */
     suspend fun updateFromGitHub(): Result<Int>
+
+    // ========== Custom Exercise Management ==========
+
+    /**
+     * Get all custom (user-created) exercises
+     * @return Flow emitting list of custom exercises
+     */
+    fun getCustomExercises(): Flow<List<Exercise>>
+
+    /**
+     * Create a new custom exercise
+     * @param exercise Exercise to create (isCustom will be set to true)
+     * @return Result with created exercise or error
+     */
+    suspend fun createCustomExercise(exercise: Exercise): Result<Exercise>
+
+    /**
+     * Update an existing custom exercise
+     * Only custom exercises can be updated
+     * @param exercise Exercise with updated values
+     * @return Result with updated exercise or error
+     */
+    suspend fun updateCustomExercise(exercise: Exercise): Result<Exercise>
+
+    /**
+     * Delete a custom exercise
+     * Only custom exercises can be deleted
+     * @param exerciseId ID of the exercise to delete
+     * @return Result indicating success or failure
+     */
+    suspend fun deleteCustomExercise(exerciseId: String): Result<Unit>
 }

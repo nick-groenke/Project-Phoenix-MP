@@ -772,13 +772,17 @@ fun SettingsTab(
     autoplayEnabled: Boolean,
     stopAtTop: Boolean,
     enableVideoPlayback: Boolean,
+    darkModeEnabled: Boolean,
     onWeightUnitChange: (WeightUnit) -> Unit,
     onAutoplayChange: (Boolean) -> Unit,
     onStopAtTopChange: (Boolean) -> Unit,
     onEnableVideoPlaybackChange: (Boolean) -> Unit,
+    onDarkModeChange: (Boolean) -> Unit,
     onColorSchemeChange: (Int) -> Unit,
     onDeleteAllWorkouts: () -> Unit,
     onNavigateToConnectionLogs: () -> Unit = {},
+    onNavigateToProtocolTester: () -> Unit = {},
+    onNavigateToBadges: () -> Unit = {},
     isAutoConnecting: Boolean = false,
     connectionError: String? = null,
     onClearConnectionError: () -> Unit = {},
@@ -887,6 +891,81 @@ fun SettingsTab(
             }
         }
 
+    // Appearance Section - Material 3 Expressive
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(20.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.medium)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .shadow(8.dp, RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFF6366F1), Color(0xFFA855F7))
+                            ),
+                            RoundedCornerShape(20.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Palette,
+                        contentDescription = "Appearance settings",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(Spacing.medium))
+                Text(
+                    "Appearance",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(Spacing.small))
+
+            // Dark Mode toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        "Dark Mode",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Use dark theme for the app interface",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = darkModeEnabled,
+                    onCheckedChange = onDarkModeChange
+                )
+            }
+        }
+    }
+
     // Workout Preferences Section - Material 3 Expressive
     Card(
         modifier = Modifier
@@ -914,13 +993,13 @@ fun SettingsTab(
                             RoundedCornerShape(20.dp) // Material 3 Expressive: More rounded (was 16dp)
                         ),
                     contentAlignment = Alignment.Center
-                ) { 
+                ) {
                     Icon(
                         Icons.Default.Tune,
                         contentDescription = "Advanced settings",
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(24.dp) // Material 3 Expressive: Larger icon
-                    ) 
+                    )
                 }
                 Spacer(modifier = Modifier.width(Spacing.medium))
                 Text(
@@ -1159,6 +1238,80 @@ fun SettingsTab(
             }
         }
 
+    // Achievements Section - Material 3 Expressive
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(20.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.medium)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .shadow(8.dp, RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFFFFD700), Color(0xFFFFA500))
+                            ),
+                            RoundedCornerShape(20.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.MilitaryTech,
+                        contentDescription = "Achievements",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(Spacing.medium))
+                Text(
+                    "Achievements",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(Spacing.small))
+
+            OutlinedButton(
+                onClick = onNavigateToBadges,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Icon(
+                    Icons.Default.EmojiEvents,
+                    contentDescription = "View badges",
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(Spacing.small))
+                Text(
+                    "View Badges & Streaks",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Track your progress, earn badges, and maintain your workout streak",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
     // Developer Tools Section - Material 3 Expressive
     Card(
         modifier = Modifier
@@ -1186,7 +1339,7 @@ fun SettingsTab(
                             RoundedCornerShape(20.dp) // Material 3 Expressive: More rounded (was 16dp)
                         ),
                     contentAlignment = Alignment.Center
-                ) { 
+                ) {
                     Icon(
                         Icons.Default.BugReport,
                         contentDescription = "View connection logs",
@@ -1227,6 +1380,35 @@ fun SettingsTab(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     "View Bluetooth connection debug logs to diagnose connectivity issues",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.medium))
+
+                OutlinedButton(
+                    onClick = onNavigateToProtocolTester,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Science,
+                        contentDescription = "Protocol tester",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.small))
+                    Text(
+                        "Protocol Tester",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Test different BLE initialization protocols to diagnose connection issues",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

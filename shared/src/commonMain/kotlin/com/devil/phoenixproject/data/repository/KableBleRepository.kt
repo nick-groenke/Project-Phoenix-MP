@@ -229,7 +229,8 @@ class KableBleRepository : BleRepository {
             .catch { e ->
                 log.e { "Scan error: ${e.message}" }
                 logRepo.error(LogEventType.ERROR, "BLE scan failed", details = e.message)
-                _connectionState.value = ConnectionState.Error("Scan failed: ${e.message}")
+                // Return to Disconnected instead of Error for scan failures - user can retry
+                _connectionState.value = ConnectionState.Disconnected
             }
             .launchIn(scope)
     }
@@ -267,7 +268,8 @@ class KableBleRepository : BleRepository {
                 device.name,
                 device.address
             )
-            _connectionState.value = ConnectionState.Error("Device not found")
+            // Return to Disconnected - device may have gone out of range, user can retry
+            _connectionState.value = ConnectionState.Disconnected
             return
         }
 
@@ -379,7 +381,8 @@ class KableBleRepository : BleRepository {
                 device.address,
                 e.message
             )
-            _connectionState.value = ConnectionState.Error("Connection failed: ${e.message}")
+            // Return to Disconnected instead of Error - connection failures are retryable
+            _connectionState.value = ConnectionState.Disconnected
             peripheral = null
             connectedDeviceName = ""
             connectedDeviceAddress = ""

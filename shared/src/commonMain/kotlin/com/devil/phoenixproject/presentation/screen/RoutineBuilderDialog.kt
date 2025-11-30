@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,11 +55,15 @@ fun RoutineBuilderDialog(
     themeMode: ThemeMode
 ) {
     var name by remember { mutableStateOf(routine?.name ?: "") }
-    var description by remember { mutableStateOf(routine?.description ?: "") }
     var exercises by remember { mutableStateOf(routine?.exercises ?: emptyList<RoutineExercise>()) }
     var showError by remember { mutableStateOf(false) }
     var showExercisePicker by remember { mutableStateOf(false) }
     var exerciseToEdit by remember { mutableStateOf<Pair<Int, RoutineExercise>?>(null) }
+
+    // Superset creation state
+    var supersetMode by remember { mutableStateOf(false) }
+    var selectedForSuperset by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var currentSupersetGroupId by remember { mutableStateOf<String?>(null) }
 
     val backgroundGradient = if (themeMode == ThemeMode.DARK) {
         Brush.verticalGradient(colors = listOf(Color(0xFF0F172A), Color(0xFF1E1B4B), Color(0xFF172554)))
@@ -113,16 +120,6 @@ fun RoutineBuilderDialog(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(Spacing.medium))
-
-                        OutlinedTextField(
-                            value = description,
-                            onValueChange = { description = it },
-                            label = { Text("Description (optional)") },
-                            modifier = Modifier.fillMaxWidth().height(100.dp),
-                            maxLines = 4
-                        )
-
                         Spacer(modifier = Modifier.height(Spacing.large))
 
                         Row(
@@ -136,11 +133,107 @@ fun RoutineBuilderDialog(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Text(
-                                "${exercises.size} exercises",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.small),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Superset mode toggle
+                                if (exercises.size >= 2) {
+                                    FilterChip(
+                                        selected = supersetMode,
+                                        onClick = {
+                                            supersetMode = !supersetMode
+                                            if (!supersetMode) {
+                                                selectedForSuperset = emptySet()
+                                                currentSupersetGroupId = null
+                                            }
+                                        },
+                                        label = { Text("Superset", style = MaterialTheme.typography.bodySmall) },
+                                        leadingIcon = {
+                                            Icon(
+                                                if (supersetMode) Icons.Default.Link else Icons.Default.LinkOff,
+                                                "Superset mode",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                            selectedLabelColor = MaterialTheme.colorScheme.primary
+                                        )
+                                    )
+                                }
+                                Text(
+                                    "${exercises.size} exercises",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // Superset mode instructions
+                        if (supersetMode) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(top = Spacing.small),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(Spacing.small)
+                                ) {
+                                    Text(
+                                        "Tap exercises to add to superset",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (selectedForSuperset.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(Spacing.extraSmall))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(Spacing.small),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                "${selectedForSuperset.size} selected",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            if (selectedForSuperset.size >= 2) {
+                                                Button(
+                                                    onClick = {
+                                                        val groupId = generateSupersetGroupId()
+                                                        exercises = exercises.map { ex ->
+                                                            if (ex.id in selectedForSuperset) {
+                                                                ex.copy(
+                                                                    supersetGroupId = groupId,
+                                                                    supersetOrder = selectedForSuperset.toList().indexOf(ex.id)
+                                                                )
+                                                            } else ex
+                                                        }
+                                                        selectedForSuperset = emptySet()
+                                                        supersetMode = false
+                                                    },
+                                                    modifier = Modifier.height(28.dp),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.primary
+                                                    )
+                                                ) {
+                                                    Text("Create Superset", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                            TextButton(
+                                                onClick = { selectedForSuperset = emptySet() },
+                                                modifier = Modifier.height(28.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Clear", style = MaterialTheme.typography.labelSmall)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         if (showError && exercises.isEmpty()) {
@@ -174,8 +267,28 @@ fun RoutineBuilderDialog(
                                 }
                             }
                         } else {
+                            // Group exercises by superset for rendering
+                            val supersetGroups = exercises.filter { it.supersetGroupId != null }
+                                .groupBy { it.supersetGroupId!! }
+                            val supersetColors = listOf(
+                                Color(0xFF6366F1), // Indigo
+                                Color(0xFFEC4899), // Pink
+                                Color(0xFF10B981), // Green
+                                Color(0xFFF59E0B)  // Amber
+                            )
+
                             Column(verticalArrangement = Arrangement.spacedBy(Spacing.small)) {
                                 exercises.forEachIndexed { index, exercise ->
+                                    val supersetGroupId = exercise.supersetGroupId
+                                    val supersetIndex = supersetGroups.keys.toList().indexOf(supersetGroupId)
+                                    val supersetColor = if (supersetIndex >= 0) {
+                                        supersetColors[supersetIndex % supersetColors.size]
+                                    } else null
+                                    val isFirstInSuperset = supersetGroupId != null &&
+                                        exercises.filter { it.supersetGroupId == supersetGroupId }
+                                            .minByOrNull { it.supersetOrder }?.id == exercise.id
+                                    val isSelected = exercise.id in selectedForSuperset
+
                                     key(exercise.id) {
                                         RoutineExerciseListItem(
                                             exercise = exercise,
@@ -183,6 +296,27 @@ fun RoutineBuilderDialog(
                                             isLast = index == exercises.lastIndex,
                                             weightUnit = weightUnit,
                                             kgToDisplay = kgToDisplay,
+                                            supersetMode = supersetMode,
+                                            isSelected = isSelected,
+                                            supersetColor = supersetColor,
+                                            isFirstInSuperset = isFirstInSuperset,
+                                            supersetLabel = if (isFirstInSuperset && supersetIndex >= 0) {
+                                                "Superset ${('A' + supersetIndex)}"
+                                            } else null,
+                                            onSelect = {
+                                                selectedForSuperset = if (isSelected) {
+                                                    selectedForSuperset - exercise.id
+                                                } else {
+                                                    selectedForSuperset + exercise.id
+                                                }
+                                            },
+                                            onUnlinkFromSuperset = {
+                                                exercises = exercises.map { ex ->
+                                                    if (ex.id == exercise.id) {
+                                                        ex.copy(supersetGroupId = null, supersetOrder = 0)
+                                                    } else ex
+                                                }
+                                            },
                                             onEdit = { exerciseToEdit = Pair(index, exercise) },
                                             onDelete = {
                                                 exercises = exercises.filterIndexed { i, _ -> i != index }
@@ -244,7 +378,6 @@ fun RoutineBuilderDialog(
                                     val newRoutine = Routine(
                                         id = routine?.id ?: generateUUID(),
                                         name = name.trim(),
-                                        description = description.trim(),
                                         exercises = exercises,
                                         createdAt = routine?.createdAt ?: KmpUtils.currentTimeMillis(),
                                         lastUsed = routine?.lastUsed,
@@ -333,6 +466,7 @@ fun RoutineBuilderDialog(
 /**
  * Exercise list item for the routine builder.
  * Shows exercise name, set/rep info, weight, and action buttons.
+ * Supports superset mode for grouping exercises.
  */
 @Composable
 fun RoutineExerciseListItem(
@@ -341,6 +475,13 @@ fun RoutineExerciseListItem(
     isLast: Boolean,
     weightUnit: WeightUnit,
     kgToDisplay: (Float, WeightUnit) -> Float,
+    supersetMode: Boolean = false,
+    isSelected: Boolean = false,
+    supersetColor: Color? = null,
+    isFirstInSuperset: Boolean = false,
+    supersetLabel: String? = null,
+    onSelect: () -> Unit = {},
+    onUnlinkFromSuperset: () -> Unit = {},
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onMoveUp: () -> Unit,
@@ -353,17 +494,72 @@ fun RoutineExerciseListItem(
         label = "scale"
     )
 
-    Card(
-        modifier = Modifier.fillMaxWidth().scale(scale),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        border = BorderStroke(1.dp, Color(0xFFF5F3FF))
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(Spacing.medium),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.small),
-            verticalAlignment = Alignment.CenterVertically
+    val borderColor = when {
+        isSelected -> MaterialTheme.colorScheme.primary
+        supersetColor != null -> supersetColor
+        else -> Color(0xFFF5F3FF)
+    }
+    val borderWidth = if (isSelected || supersetColor != null) 2.dp else 1.dp
+
+    Column {
+        // Superset label header
+        if (supersetLabel != null) {
+            Surface(
+                shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+                color = supersetColor?.copy(alpha = 0.15f) ?: MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Link,
+                            "Superset",
+                            tint = supersetColor ?: MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            supersetLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = supersetColor ?: MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(scale),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected)
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                else MaterialTheme.colorScheme.surface
+            ),
+            shape = if (supersetLabel != null)
+                RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)
+            else RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            border = BorderStroke(borderWidth, borderColor)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (supersetMode) {
+                            Modifier.clickable { onSelect() }
+                        } else Modifier
+                    )
+                    .padding(Spacing.medium),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.small),
+                verticalAlignment = Alignment.CenterVertically
         ) {
             // Move up/down buttons
             Column(
@@ -521,32 +717,51 @@ fun RoutineExerciseListItem(
                 }
             }
 
-            // Edit/Delete buttons
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                IconButton(
-                    onClick = { isPressed = true; onEdit() },
-                    modifier = Modifier.size(36.dp)
+                // Edit/Delete/Unlink buttons
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        Icons.Default.Edit,
-                        "Edit",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Delete,
-                        "Delete",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (!supersetMode) {
+                        IconButton(
+                            onClick = { isPressed = true; onEdit() },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                "Edit",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    // Unlink from superset button (only show for exercises in a superset)
+                    if (exercise.supersetGroupId != null && !supersetMode) {
+                        IconButton(
+                            onClick = onUnlinkFromSuperset,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.LinkOff,
+                                "Remove from superset",
+                                tint = supersetColor ?: MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    if (!supersetMode) {
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                "Delete",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

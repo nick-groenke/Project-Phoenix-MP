@@ -31,6 +31,7 @@ import com.devil.phoenixproject.domain.model.WorkoutSession
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
 import com.devil.phoenixproject.ui.theme.Spacing
 import com.devil.phoenixproject.presentation.components.*
+import com.devil.phoenixproject.presentation.components.DateRangePickerDialog
 import com.devil.phoenixproject.util.CsvExporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -341,6 +342,7 @@ fun AnalyticsScreen(
     // Pager state for swipe gestures
     val pagerState = rememberPagerState(pageCount = { 3 })
     var showExportMenu by remember { mutableStateOf(false) }
+    var showDateRangePicker by remember { mutableStateOf(false) }
     var exportMessage by remember { mutableStateOf<String?>(null) }
     var isExporting by remember { mutableStateOf(false) }
 
@@ -598,29 +600,11 @@ fun AnalyticsScreen(
                         Text("Personal Records (${personalRecords.size})")
                     }
 
-                    // Export Workout History
+                    // Export Workout History - Opens date range picker
                     OutlinedButton(
                         onClick = {
-                            isExporting = true
-                            scope.launch(Dispatchers.Default) {
-                                val result = csvExporter.exportWorkoutHistory(
-                                    workoutSessions = allWorkoutSessions,
-                                    exerciseNames = exerciseNames.toMap(),
-                                    weightUnit = weightUnit,
-                                    formatWeight = viewModel::formatWeight
-                                )
-                                isExporting = false
-                                result.fold(
-                                    onSuccess = { path ->
-                                        exportMessage = "Exported to: $path"
-                                        csvExporter.shareCSV(path, "workout_history.csv")
-                                    },
-                                    onFailure = { error ->
-                                        exportMessage = "Export failed: ${error.message}"
-                                    }
-                                )
-                                showExportMenu = false
-                            }
+                            showExportMenu = false
+                            showDateRangePicker = true
                         },
                         enabled = !isExporting && allWorkoutSessions.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth()
@@ -683,6 +667,45 @@ fun AnalyticsScreen(
             },
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
             shape = RoundedCornerShape(28.dp)
+        )
+    }
+
+    // Date range picker for workout history export
+    if (showDateRangePicker) {
+        DateRangePickerDialog(
+            totalRecords = allWorkoutSessions.size,
+            onDateRangeSelected = { startDate, endDate ->
+                showDateRangePicker = false
+                isExporting = true
+                scope.launch(Dispatchers.Default) {
+                    val result = csvExporter.exportWorkoutHistoryFiltered(
+                        workoutSessions = allWorkoutSessions,
+                        startDate = startDate,
+                        endDate = endDate,
+                        exerciseNames = exerciseNames.toMap(),
+                        weightUnit = weightUnit,
+                        formatWeight = viewModel::formatWeight
+                    )
+                    isExporting = false
+                    result.fold(
+                        onSuccess = { path ->
+                            exportMessage = "Exported to: $path"
+                            csvExporter.shareCSV(path, "workout_history.csv")
+                        },
+                        onFailure = { error ->
+                            exportMessage = "Export failed: ${error.message}"
+                        }
+                    )
+                }
+            },
+            onDismiss = { showDateRangePicker = false },
+            filterRecordCount = { startDate, endDate ->
+                allWorkoutSessions.count { session ->
+                    val afterStart = startDate == null || session.timestamp >= startDate
+                    val beforeEnd = endDate == null || session.timestamp <= endDate
+                    afterStart && beforeEnd
+                }
+            }
         )
     }
 

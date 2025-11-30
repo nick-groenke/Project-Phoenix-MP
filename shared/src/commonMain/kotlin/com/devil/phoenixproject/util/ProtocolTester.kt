@@ -134,6 +134,210 @@ object ProtocolTester {
             TestConfig(InitProtocol.INIT_0x0A_WAIT_0x0B, ConnectionDelay.DELAY_500MS)
         )
     }
+
+    /**
+     * Build the init command bytes based on protocol
+     */
+    fun buildInitCommandForProtocol(protocol: InitProtocol): ByteArray? {
+        return when (protocol) {
+            InitProtocol.NO_INIT -> null
+            InitProtocol.INIT_0x0A_NO_WAIT,
+            InitProtocol.INIT_0x0A_WAIT_0x0B,
+            InitProtocol.INIT_DOUBLE_0x0A -> BlePacketFactory.createInitCommand()
+            InitProtocol.INIT_0x0A_PLUS_PRESET -> BlePacketFactory.createInitCommand()
+        }
+    }
+
+    /**
+     * Build the secondary command (if any) based on protocol
+     */
+    fun buildSecondaryCommandForProtocol(protocol: InitProtocol): ByteArray? {
+        return when (protocol) {
+            InitProtocol.INIT_0x0A_PLUS_PRESET -> BlePacketFactory.createInitPreset()
+            InitProtocol.INIT_DOUBLE_0x0A -> BlePacketFactory.createInitCommand()
+            else -> null
+        }
+    }
+
+    /**
+     * Check if protocol requires waiting for response
+     */
+    fun requiresResponseWait(protocol: InitProtocol): Boolean {
+        return protocol == InitProtocol.INIT_0x0A_WAIT_0x0B
+    }
+
+    /**
+     * Get expected response opcode (if any)
+     */
+    fun getExpectedResponseOpcode(protocol: InitProtocol): UByte? {
+        return when (protocol) {
+            InitProtocol.INIT_0x0A_WAIT_0x0B -> 0x0Bu
+            else -> null
+        }
+    }
+
+    /**
+     * Format test results as a shareable report
+     */
+    fun formatTestReport(
+        results: List<TestResult>,
+        deviceName: String,
+        platformVersion: String,
+        appVersion: String
+    ): String = buildString {
+        appendLine("═══════════════════════════════════════════════════════")
+        appendLine("       VITRUVIAN PROTOCOL TESTER REPORT")
+        appendLine("═══════════════════════════════════════════════════════")
+        appendLine()
+        appendLine("Generated: ${KmpUtils.formatTimestamp(KmpUtils.currentTimeMillis(), "yyyy-MM-dd")} ${KmpUtils.formatTimestamp(KmpUtils.currentTimeMillis(), "HH:mm:ss")}")
+        appendLine("Device: $deviceName")
+        appendLine("Platform: $platformVersion")
+        appendLine("App Version: $appVersion")
+
+        // Show firmware version from first result that has it
+        val firmwareVersion = results.firstNotNullOfOrNull { it.diagnostics?.firmwareVersion }
+        firmwareVersion?.let { appendLine("Firmware: $it") }
+
+        // Show MTU from first result that has it
+        val mtuSize = results.firstNotNullOfOrNull { it.diagnostics?.mtuSize }
+        mtuSize?.let { appendLine("MTU Size: $it bytes") }
+
+        appendLine()
+        appendLine("─── TEST RESULTS ───")
+        appendLine()
+
+        val successfulResults = results.filter { it.success }
+        val failedResults = results.filter { !it.success }
+
+        appendLine("Successful configurations: ${successfulResults.size}")
+        successfulResults.forEach { result ->
+            appendLine("  • ${result.protocol.displayName} + ${result.delay.displayName}")
+            appendLine("    Time: ${result.totalTimeMs}ms (connect: ${result.connectionTimeMs}ms, init: ${result.initTimeMs}ms)")
+            result.diagnostics?.let { diag ->
+                if (diag.monitorPollsReceived > 0) {
+                    appendLine("    Monitor polls: ${diag.monitorPollsReceived} received, ${diag.monitorPollsFailed} failed")
+                }
+                if (diag.workoutSimulationDurationMs > 0) {
+                    appendLine("    Workout simulation: ${diag.workoutSimulationDurationMs}ms stable")
+                }
+            }
+            result.notes?.let { appendLine("    Notes: $it") }
+        }
+
+        appendLine()
+        appendLine("Failed configurations: ${failedResults.size}")
+        failedResults.forEach { result ->
+            appendLine("  • ${result.protocol.displayName} + ${result.delay.displayName}")
+            appendLine("    Error: ${result.errorMessage ?: "Unknown error"}")
+            result.diagnostics?.let { diag ->
+                diag.disconnectTimeSeconds?.let { sec ->
+                    appendLine("    DISCONNECTED at ${sec}s into workout simulation")
+                }
+                diag.lastDisconnectReason?.let { reason ->
+                    appendLine("    Disconnect reason: $reason")
+                }
+                if (diag.monitorPollsReceived > 0 || diag.monitorPollsFailed > 0) {
+                    appendLine("    Monitor polls before failure: ${diag.monitorPollsReceived} received, ${diag.monitorPollsFailed} failed")
+                }
+            }
+        }
+
+        // Analyze disconnect patterns
+        val disconnectTimes = failedResults.mapNotNull { it.diagnostics?.disconnectTimeSeconds }
+        if (disconnectTimes.isNotEmpty()) {
+            appendLine()
+            appendLine("─── DISCONNECT PATTERN ANALYSIS ───")
+            appendLine()
+            val avgDisconnect = disconnectTimes.average()
+            val minDisconnect = disconnectTimes.minOrNull() ?: 0
+            val maxDisconnect = disconnectTimes.maxOrNull() ?: 0
+            appendLine("Disconnect times: ${disconnectTimes.joinToString(", ")}s")
+            appendLine("Average disconnect time: ${avgDisconnect.format(1)}s")
+            appendLine("Range: ${minDisconnect}s - ${maxDisconnect}s")
+
+            if (avgDisconnect in 4.0..6.0) {
+                appendLine()
+                appendLine("PATTERN DETECTED: ~5 second disconnects")
+                appendLine("This suggests a connection supervision timeout issue.")
+                appendLine("The device may be timing out due to:")
+                appendLine("  - Missing keep-alive packets")
+                appendLine("  - BLE connection parameter mismatch")
+                appendLine("  - Platform BLE stack issues")
+            }
+        }
+
+        appendLine()
+        appendLine("─── RECOMMENDATION ───")
+        appendLine()
+
+        if (successfulResults.isNotEmpty()) {
+            val fastest = successfulResults.minByOrNull { it.totalTimeMs }
+            appendLine("Recommended protocol: ${fastest?.protocol?.displayName} + ${fastest?.delay?.displayName}")
+            appendLine("This configuration connected fastest at ${fastest?.totalTimeMs}ms")
+        } else {
+            appendLine("No successful configurations found.")
+            appendLine("Please share this report for further analysis.")
+        }
+
+        appendLine()
+        appendLine("═══════════════════════════════════════════════════════")
+    }
+
+    /**
+     * Format exercise cycle test results as a shareable report
+     */
+    fun formatExerciseCycleReport(
+        phaseResults: List<ExerciseCyclePhaseResult>,
+        deviceName: String,
+        platformVersion: String,
+        appVersion: String
+    ): String = buildString {
+        appendLine("═══════════════════════════════════════════════════════")
+        appendLine("       VITRUVIAN EXERCISE CYCLE TEST REPORT")
+        appendLine("═══════════════════════════════════════════════════════")
+        appendLine()
+        appendLine("Generated: ${KmpUtils.formatTimestamp(KmpUtils.currentTimeMillis(), "yyyy-MM-dd")} ${KmpUtils.formatTimestamp(KmpUtils.currentTimeMillis(), "HH:mm:ss")}")
+        appendLine("Device: $deviceName")
+        appendLine("Platform: $platformVersion")
+        appendLine("App Version: $appVersion")
+        appendLine()
+        appendLine("─── PHASE RESULTS ───")
+        appendLine()
+
+        phaseResults.forEachIndexed { index, result ->
+            val status = if (result.success) "SUCCESS" else "FAILED"
+            appendLine("${index + 1}. ${result.phase.displayName}: $status (${result.durationMs}ms)")
+
+            result.commandSent?.let { cmd ->
+                val hexStr = cmd.joinToString(" ") { byte ->
+                    val unsigned = byte.toInt() and 0xFF
+                    unsigned.toString(16).uppercase().padStart(2, '0')
+                }
+                val truncated = if (cmd.size > 16) "$hexStr... (${cmd.size} bytes)" else hexStr
+                appendLine("   Sent: $truncated")
+            }
+
+            result.notes?.let { appendLine("   Notes: $it") }
+            result.errorMessage?.let { appendLine("   Error: $it") }
+            appendLine()
+        }
+
+        appendLine("─── SUMMARY ───")
+        appendLine()
+
+        val totalDuration = phaseResults.sumOf { it.durationMs }
+        val failedPhases = phaseResults.filter { !it.success }
+
+        if (failedPhases.isEmpty()) {
+            appendLine("Result: ALL PHASES PASSED")
+        } else {
+            appendLine("Result: ${failedPhases.size} PHASE(S) FAILED")
+            failedPhases.forEach { appendLine("  - ${it.phase.displayName}: ${it.errorMessage ?: "Unknown error"}") }
+        }
+        appendLine("Total duration: ${totalDuration}ms")
+        appendLine()
+        appendLine("═══════════════════════════════════════════════════════")
+    }
 }
 
 /**

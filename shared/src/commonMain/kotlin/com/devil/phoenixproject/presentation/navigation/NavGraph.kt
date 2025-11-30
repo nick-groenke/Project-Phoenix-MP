@@ -16,7 +16,9 @@ import androidx.navigation.navArgument
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.presentation.screen.*
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
+import com.devil.phoenixproject.presentation.viewmodel.ProtocolTesterViewModel
 import com.devil.phoenixproject.ui.theme.ThemeMode
+import org.koin.compose.koinInject
 
 /**
  * Main navigation graph for the app.
@@ -185,13 +187,17 @@ fun NavGraph(
                 autoplayEnabled = userPreferences.autoplayEnabled,
                 stopAtTop = userPreferences.stopAtTop,
                 enableVideoPlayback = userPreferences.enableVideoPlayback,
+                darkModeEnabled = themeMode == ThemeMode.DARK,
                 onWeightUnitChange = { viewModel.setWeightUnit(it) },
                 onAutoplayChange = { viewModel.setAutoplayEnabled(it) },
                 onStopAtTopChange = { viewModel.setStopAtTop(it) },
                 onEnableVideoPlaybackChange = { viewModel.setEnableVideoPlayback(it) },
+                onDarkModeChange = { enabled -> onThemeModeChange(if (enabled) ThemeMode.DARK else ThemeMode.LIGHT) },
                 onColorSchemeChange = { viewModel.setColorScheme(it) },
                 onDeleteAllWorkouts = { viewModel.deleteAllWorkouts() },
                 onNavigateToConnectionLogs = { navController.navigate(NavigationRoutes.ConnectionLogs.route) },
+                onNavigateToProtocolTester = { navController.navigate(NavigationRoutes.ProtocolTester.route) },
+                onNavigateToBadges = { navController.navigate(NavigationRoutes.Badges.route) },
                 isAutoConnecting = isAutoConnecting,
                 connectionError = connectionError,
                 onClearConnectionError = { viewModel.clearConnectionError() },
@@ -205,6 +211,42 @@ fun NavGraph(
             ConnectionLogsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 mainViewModel = viewModel
+            )
+        }
+
+        // Protocol Tester screen - BLE diagnostics
+        composable(
+            route = NavigationRoutes.ProtocolTester.route,
+            enterTransition = { fadeIn(animationSpec = tween(200)) },
+            exitTransition = { fadeOut(animationSpec = tween(200)) }
+        ) {
+            val protocolTesterViewModel: ProtocolTesterViewModel = koinInject()
+            ProtocolTesterScreen(
+                viewModel = protocolTesterViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // Badges screen - achievements and gamification
+        composable(
+            route = NavigationRoutes.Badges.route,
+            enterTransition = {
+                slideIntoContainer(
+                    towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                    animationSpec = tween(300)
+                ) + fadeIn(animationSpec = tween(300))
+            },
+            exitTransition = { fadeOut(animationSpec = tween(200)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(200)) },
+            popExitTransition = {
+                slideOutOfContainer(
+                    towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(300)
+                ) + fadeOut(animationSpec = tween(300))
+            }
+        ) {
+            BadgesScreen(
+                onBack = { navController.popBackStack() }
             )
         }
     }

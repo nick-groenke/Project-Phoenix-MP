@@ -26,7 +26,14 @@ import com.devil.phoenixproject.data.repository.AutoStopUiState
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.domain.model.*
 import com.devil.phoenixproject.domain.usecase.RepRanges
+import com.devil.phoenixproject.presentation.components.AutoStartOverlay
+import com.devil.phoenixproject.presentation.components.AutoStopOverlay
+import com.devil.phoenixproject.presentation.components.CompactExerciseNavigator
+import com.devil.phoenixproject.presentation.components.EnhancedCablePositionBar
+import com.devil.phoenixproject.presentation.components.ExerciseNavigator
 import com.devil.phoenixproject.presentation.components.HapticFeedbackEffect
+import com.devil.phoenixproject.presentation.components.VideoPlayer
+import com.devil.phoenixproject.data.repository.ExerciseVideoEntity
 import com.devil.phoenixproject.ui.theme.Spacing
 import kotlinx.coroutines.flow.SharedFlow
 import kotlin.math.roundToInt
@@ -44,6 +51,7 @@ fun WorkoutTab(
     repCount: RepCount,
     repRanges: RepRanges?,
     autoStopState: AutoStopUiState,
+    autoStartCountdown: Int? = null,
     weightUnit: WeightUnit,
     enableVideoPlayback: Boolean,
     exerciseRepository: ExerciseRepository,
@@ -51,7 +59,12 @@ fun WorkoutTab(
     hapticEvents: SharedFlow<HapticEvent>? = null,
     loadedRoutine: Routine? = null,
     currentExerciseIndex: Int = 0,
+    skippedExercises: Set<Int> = emptySet(),
+    completedExercises: Set<Int> = emptySet(),
     autoplayEnabled: Boolean = false,
+    onJumpToExercise: (Int) -> Unit = {},
+    canGoBack: Boolean = false,
+    canSkipForward: Boolean = false,
     kgToDisplay: (Float, WeightUnit) -> Float,
     displayToKg: (Float, WeightUnit) -> Float,
     formatWeight: (Float, WeightUnit) -> String,
@@ -102,11 +115,12 @@ fun WorkoutTab(
             workoutState is WorkoutState.Active &&
             currentMetric != null
 
-        // Left edge bar (Cable A / Left hand)
+        // Left edge bar (Cable A / Left hand) - Enhanced with phase-reactive coloring
         if (showPositionBars && currentMetric != null) {
-            VerticalCablePositionBar(
+            EnhancedCablePositionBar(
                 label = "L",
                 currentPosition = currentMetric.positionA,
+                velocity = currentMetric.velocityA,
                 minPosition = repRanges?.minPosA,
                 maxPosition = repRanges?.maxPosA,
                 isActive = currentMetric.positionA > 0,
@@ -118,11 +132,12 @@ fun WorkoutTab(
             )
         }
 
-        // Right edge bar (Cable B / Right hand)
+        // Right edge bar (Cable B / Right hand) - Enhanced with phase-reactive coloring
         if (showPositionBars && currentMetric != null) {
-            VerticalCablePositionBar(
+            EnhancedCablePositionBar(
                 label = "R",
                 currentPosition = currentMetric.positionB,
+                velocity = currentMetric.velocityB,
                 minPosition = repRanges?.minPosB,
                 maxPosition = repRanges?.maxPosB,
                 isActive = currentMetric.positionB > 0,
@@ -180,7 +195,6 @@ fun WorkoutTab(
                     is WorkoutState.Active -> {
                         ActiveWorkoutCard(
                             workoutParameters = workoutParameters,
-                            autoStopState = autoStopState,
                             onStopWorkout = onStopWorkout
                         )
                     }
@@ -240,15 +254,13 @@ fun WorkoutTab(
                 }
                 is WorkoutState.SetSummary -> {
                     SetSummaryCard(
-                        metrics = workoutState.metrics,
-                        peakPower = workoutState.peakPower,
-                        averagePower = workoutState.averagePower,
-                        repCount = workoutState.repCount,
+                        summary = workoutState,
+                        workoutMode = workoutParameters.workoutType.displayName,
                         weightUnit = weightUnit,
+                        kgToDisplay = kgToDisplay,
                         formatWeight = formatWeight,
                         onContinue = onProceedFromSummary,
-                        autoplayEnabled = autoplayEnabled,
-                        configuredPerCableKg = workoutParameters.weightPerCableKg
+                        autoplayEnabled = autoplayEnabled
                     )
                 }
                 is WorkoutState.Resting -> {
@@ -263,12 +275,71 @@ fun WorkoutTab(
                         nextExerciseMode = workoutParameters.workoutType.displayName,
                         currentExerciseIndex = if (loadedRoutine != null) currentExerciseIndex else null,
                         totalExercises = loadedRoutine?.exercises?.size,
+                        weightUnit = weightUnit,
+                        lastUsedWeight = workoutParameters.lastUsedWeightKg,
+                        prWeight = workoutParameters.prWeightKg,
                         formatWeight = { weight -> formatWeight(weight, weightUnit) },
+                        formatWeightWithUnit = formatWeight,
+                        isSupersetTransition = workoutState.isSupersetTransition,
+                        supersetLabel = workoutState.supersetLabel,
                         onSkipRest = onSkipRest,
-                        onEndWorkout = onStopWorkout
+                        onEndWorkout = onStopWorkout,
+                        onUpdateReps = { newReps ->
+                            onUpdateParameters(workoutParameters.copy(reps = newReps))
+                        },
+                        onUpdateWeight = { newWeight ->
+                            onUpdateParameters(workoutParameters.copy(weightPerCableKg = newWeight))
+                        }
                     )
                 }
                 else -> {}
+            }
+
+            // Exercise Navigator - shows when routine is loaded with multiple exercises
+            // Only show during states where navigation makes sense (not during active workout)
+            if (loadedRoutine != null &&
+                loadedRoutine.exercises.size > 1 &&
+                workoutState !is WorkoutState.Active
+            ) {
+                Spacer(modifier = Modifier.height(Spacing.medium))
+                ExerciseNavigator(
+                    currentIndex = currentExerciseIndex,
+                    exerciseNames = loadedRoutine.exercises.map { it.exercise.name },
+                    skippedIndices = skippedExercises,
+                    completedIndices = completedExercises,
+                    onNavigateToExercise = onJumpToExercise,
+                    canGoBack = canGoBack,
+                    canSkipForward = canSkipForward
+                )
+            }
+        }
+
+        // --- FLOATING OVERLAYS ---
+        // Auto-stop overlay - floats at bottom when active (Just Lift / AMRAP)
+        if (workoutState is WorkoutState.Active) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 32.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                AutoStopOverlay(
+                    autoStopState = autoStopState,
+                    isJustLift = workoutParameters.isJustLift
+                )
+            }
+        }
+
+        // Auto-start overlay - shows when user grabs handles in Idle state (Just Lift)
+        if (workoutState is WorkoutState.Idle && autoStartCountdown != null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                AutoStartOverlay(
+                    isActive = true,
+                    secondsRemaining = autoStartCountdown
+                )
             }
         }
     }
@@ -522,7 +593,6 @@ private fun CompletedCard(
 @Composable
 private fun ActiveWorkoutCard(
     workoutParameters: WorkoutParameters,
-    autoStopState: AutoStopUiState,
     onStopWorkout: () -> Unit
 ) {
     Card(
@@ -544,11 +614,6 @@ private fun ActiveWorkoutCard(
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Spacer(modifier = Modifier.height(Spacing.small))
-
-            if (workoutParameters.isJustLift) {
-                JustLiftAutoStopCard(autoStopState = autoStopState)
-                Spacer(modifier = Modifier.height(Spacing.medium))
-            }
 
             Button(
                 onClick = onStopWorkout,
@@ -711,89 +776,6 @@ fun ConnectionCard(
                     )
                 }
             }
-        }
-    }
-}
-
-/**
- * Just Lift Auto-Stop Card
- */
-@Composable
-fun JustLiftAutoStopCard(autoStopState: AutoStopUiState) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (autoStopState.isActive) {
-                MaterialTheme.colorScheme.errorContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHighest
-            }
-        ),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(Spacing.medium),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PanTool,
-                    contentDescription = "Hands on handles indicator",
-                    tint = if (autoStopState.isActive) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-                Spacer(Modifier.width(Spacing.small))
-                Text(
-                    text = if (autoStopState.isActive) {
-                        "Stopping in ${autoStopState.secondsRemaining}s..."
-                    } else {
-                        "Auto-Stop Ready"
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = if (autoStopState.isActive) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(Spacing.small))
-
-            LinearProgressIndicator(
-                progress = { autoStopState.progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
-                color = if (autoStopState.isActive) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.outline
-                }
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.small))
-
-            Text(
-                text = "Put handles down for 5 seconds to stop",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (autoStopState.isActive) {
-                    MaterialTheme.colorScheme.onErrorContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                textAlign = TextAlign.Center
-            )
         }
     }
 }
@@ -1100,14 +1082,17 @@ fun CurrentExerciseCard(
     // Get current exercise from routine if available
     val currentExercise = loadedRoutine?.exercises?.getOrNull(currentExerciseIndex)
 
-    // Get exercise entity for video
+    // Get exercise entity and video for display
     var exerciseEntity by remember { mutableStateOf<Exercise?>(null) }
+    var videoEntity by remember { mutableStateOf<ExerciseVideoEntity?>(null) }
 
-    // Load exercise data
+    // Load exercise and video data
     LaunchedEffect(currentExercise?.exercise?.id, workoutParameters.selectedExerciseId) {
         val exerciseId = currentExercise?.exercise?.id ?: workoutParameters.selectedExerciseId
         if (exerciseId != null) {
             exerciseEntity = exerciseRepository.getExerciseById(exerciseId)
+            val videos = exerciseRepository.getVideos(exerciseId)
+            videoEntity = videos.firstOrNull()
         }
     }
 
@@ -1194,23 +1179,287 @@ fun CurrentExerciseCard(
                 )
             }
 
-            // Video player placeholder - requires expect/actual implementation
+            // Video player - shows exercise demonstration video or placeholder
             if (enableVideoPlayback) {
-                // TODO: Add video player when expect/actual is implemented
                 Spacer(modifier = Modifier.height(Spacing.medium))
-                Box(
+                VideoPlayer(
+                    videoUrl = videoEntity?.videoUrl,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Enhanced Set Summary Card - matches official Vitruvian app design
+ * Shows detailed metrics: reps, volume, mode, peak/avg forces, duration, energy
+ */
+@Composable
+fun SetSummaryCard(
+    summary: WorkoutState.SetSummary,
+    workoutMode: String,
+    weightUnit: WeightUnit,
+    kgToDisplay: (Float, WeightUnit) -> Float,
+    formatWeight: (Float, WeightUnit) -> String,
+    onContinue: () -> Unit,
+    autoplayEnabled: Boolean
+) {
+    // Auto-continue countdown when autoplay is enabled
+    var autoCountdown by remember { mutableStateOf(if (autoplayEnabled) 5 else -1) }
+
+    LaunchedEffect(autoplayEnabled) {
+        if (autoplayEnabled) {
+            autoCountdown = 5
+            while (autoCountdown > 0) {
+                kotlinx.coroutines.delay(1000)
+                autoCountdown--
+            }
+            if (autoCountdown == 0) {
+                onContinue()
+            }
+        }
+    }
+
+    // Calculate display values
+    val displayReps = summary.repCount
+    val totalVolumeDisplay = kgToDisplay(summary.totalVolumeKg, weightUnit)
+    val heaviestLiftDisplay = kgToDisplay(summary.heaviestLiftKgPerCable, weightUnit)
+    val durationSeconds = (summary.durationMs / 1000).toInt()
+    val durationFormatted = "${durationSeconds / 60}:${(durationSeconds % 60).toString().padStart(2, '0')}"
+
+    // Peak/Avg forces - take max of both cables for display
+    val peakConcentric = kgToDisplay(maxOf(summary.peakForceConcentricA, summary.peakForceConcentricB), weightUnit)
+    val peakEccentric = kgToDisplay(maxOf(summary.peakForceEccentricA, summary.peakForceEccentricB), weightUnit)
+    val avgConcentric = kgToDisplay(maxOf(summary.avgForceConcentricA, summary.avgForceConcentricB), weightUnit)
+    val avgEccentric = kgToDisplay(maxOf(summary.avgForceEccentricA, summary.avgForceEccentricB), weightUnit)
+
+    val unitLabel = if (weightUnit == WeightUnit.LB) "lb" else "kg"
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // Gradient header with Total Reps and Total Volume
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.tertiary
+                            )
+                        )
+                    )
+                    .padding(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Total reps",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                        )
+                        Text(
+                            "$displayReps",
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            "Total volume ($unitLabel)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                        )
+                        Text(
+                            "${totalVolumeDisplay.roundToInt()}",
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+            }
+        }
+
+        // Stats Grid
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Row 1: Mode and Heaviest Lift
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SummaryStatCard(
+                    label = "Mode",
+                    value = workoutMode,
+                    icon = Icons.Default.GridView,
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStatCard(
+                    label = "Heaviest Lift",
+                    value = "${heaviestLiftDisplay.roundToInt()}",
+                    unit = "($unitLabel)",
+                    icon = Icons.Default.FitnessCenter,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Row 2: Peak Force (concentric/eccentric)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SummaryForceCard(
+                    label = "Peak force ($unitLabel/cable)",
+                    concentricValue = peakConcentric,
+                    eccentricValue = peakEccentric,
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryForceCard(
+                    label = "Avg force ($unitLabel/cable)",
+                    concentricValue = avgConcentric,
+                    eccentricValue = avgEccentric,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Row 3: Duration and Energy
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SummaryStatCard(
+                    label = "Duration",
+                    value = durationFormatted,
+                    unit = "sec",
+                    icon = Icons.Default.Timer,
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryStatCard(
+                    label = "Energy",
+                    value = "${summary.estimatedCalories.roundToInt()}",
+                    unit = "(kCal)",
+                    icon = Icons.Default.LocalFireDepartment,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Echo Mode Phase Breakdown
+            if (summary.isEchoMode && (summary.warmupAvgWeightKg > 0 || summary.workingAvgWeightKg > 0)) {
+                EchoPhaseBreakdownCard(
+                    warmupReps = summary.warmupReps,
+                    workingReps = summary.workingReps,
+                    burnoutReps = summary.burnoutReps,
+                    warmupAvgWeight = kgToDisplay(summary.warmupAvgWeightKg, weightUnit),
+                    workingAvgWeight = kgToDisplay(summary.workingAvgWeightKg, weightUnit),
+                    burnoutAvgWeight = kgToDisplay(summary.burnoutAvgWeightKg, weightUnit),
+                    peakWeight = kgToDisplay(summary.peakWeightKg, weightUnit),
+                    unitLabel = unitLabel
+                )
+            }
+        }
+
+        // Done/Continue button
+        Button(
+            onClick = onContinue,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary
+            )
+        ) {
+            Text(
+                text = if (autoplayEnabled && autoCountdown > 0) {
+                    "Done ($autoCountdown)"
+                } else {
+                    "Done"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimary
+            )
+        }
+    }
+}
+
+/**
+ * Individual stat card for the summary grid
+ */
+@Composable
+private fun SummaryStatCard(
+    label: String,
+    value: String,
+    unit: String? = null,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                icon?.let {
                     Icon(
-                        Icons.Default.PlayCircle,
-                        contentDescription = "Video preview",
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        it,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                unit?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 4.dp)
                     )
                 }
             }
@@ -1219,88 +1468,197 @@ fun CurrentExerciseCard(
 }
 
 /**
- * Set Summary Card - shown after completing a set
+ * Force card showing concentric (up arrow) and eccentric (down arrow) values
  */
 @Composable
-fun SetSummaryCard(
-    metrics: List<WorkoutMetric>,
-    peakPower: Float,
-    averagePower: Float,
-    repCount: Int,
-    weightUnit: WeightUnit,
-    formatWeight: (Float, WeightUnit) -> String,
-    onContinue: () -> Unit,
-    autoplayEnabled: Boolean,
-    configuredPerCableKg: Float
+private fun SummaryForceCard(
+    label: String,
+    concentricValue: Float,
+    eccentricValue: Float,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-        shape = RoundedCornerShape(20.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(Spacing.medium),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(16.dp)
         ) {
-            Icon(
-                Icons.Default.CheckCircle,
-                contentDescription = "Set complete",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(modifier = Modifier.height(Spacing.small))
             Text(
-                "Set Complete!",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Concentric (lifting) with up arrow
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${concentricValue.roundToInt()}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        " \u2191", // Up arrow
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                // Eccentric (lowering) with down arrow
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${eccentricValue.roundToInt()}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        " \u2193", // Down arrow
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(Spacing.medium))
+/**
+ * Echo Mode Phase Breakdown Card
+ * Shows average weight per phase (warmup, working, burnout) with rep counts
+ */
+@Composable
+private fun EchoPhaseBreakdownCard(
+    warmupReps: Int,
+    workingReps: Int,
+    burnoutReps: Int,
+    warmupAvgWeight: Float,
+    workingAvgWeight: Float,
+    burnoutAvgWeight: Float,
+    peakWeight: Float,
+    unitLabel: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Echo Phase Breakdown",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    "Peak: ${peakWeight.roundToInt()} $unitLabel",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
-            // Stats row
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Phase breakdown row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "$repCount",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
+                // Warmup Phase
+                if (warmupReps > 0 || warmupAvgWeight > 0) {
+                    PhaseStatColumn(
+                        phaseName = "Warmup",
+                        reps = warmupReps,
+                        avgWeight = warmupAvgWeight,
+                        unitLabel = unitLabel,
+                        color = MaterialTheme.colorScheme.tertiary
                     )
-                    Text("Reps", style = MaterialTheme.typography.bodySmall)
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "${peakPower.roundToInt()} W",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
+
+                // Working Phase
+                PhaseStatColumn(
+                    phaseName = "Working",
+                    reps = workingReps,
+                    avgWeight = workingAvgWeight,
+                    unitLabel = unitLabel,
+                    color = MaterialTheme.colorScheme.primary,
+                    isPrimary = true
+                )
+
+                // Burnout Phase
+                if (burnoutReps > 0 || burnoutAvgWeight > 0) {
+                    PhaseStatColumn(
+                        phaseName = "Burnout",
+                        reps = burnoutReps,
+                        avgWeight = burnoutAvgWeight,
+                        unitLabel = unitLabel,
+                        color = MaterialTheme.colorScheme.secondary
                     )
-                    Text("Peak Power", style = MaterialTheme.typography.bodySmall)
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "${averagePower.roundToInt()} W",
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text("Avg Power", style = MaterialTheme.typography.bodySmall)
                 }
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(Spacing.medium))
-
-            Button(
-                onClick = onContinue,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (autoplayEnabled) "Continue (Auto)" else "Continue")
-            }
+/**
+ * Individual phase stat column for Echo breakdown
+ */
+@Composable
+private fun PhaseStatColumn(
+    phaseName: String,
+    reps: Int,
+    avgWeight: Float,
+    unitLabel: String,
+    color: Color,
+    isPrimary: Boolean = false
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            phaseName,
+            style = MaterialTheme.typography.labelMedium,
+            color = color,
+            fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.Normal
+        )
+        Text(
+            "${avgWeight.roundToInt()}",
+            style = if (isPrimary) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            "$unitLabel/cable",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (reps > 0) {
+            Text(
+                "$reps reps",
+                style = MaterialTheme.typography.bodySmall,
+                color = color
+            )
         }
     }
 }

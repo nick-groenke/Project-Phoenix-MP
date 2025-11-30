@@ -42,6 +42,34 @@ interface CsvExporter {
     ): Result<String>
 
     /**
+     * Export workout history with date range filter
+     *
+     * @param workoutSessions List of workout sessions to export
+     * @param startDate Optional start timestamp (inclusive). If null, no lower bound.
+     * @param endDate Optional end timestamp (inclusive). If null, no upper bound.
+     * @param exerciseNames Map of exercise IDs to display names
+     * @param weightUnit Unit to use for weight values
+     * @param formatWeight Function to format weight values
+     * @return Result containing URI/path to the exported file or error
+     */
+    fun exportWorkoutHistoryFiltered(
+        workoutSessions: List<WorkoutSession>,
+        startDate: Long?,
+        endDate: Long?,
+        exerciseNames: Map<String, String>,
+        weightUnit: WeightUnit,
+        formatWeight: (Float, WeightUnit) -> String
+    ): Result<String> {
+        // Default implementation filters and calls existing method
+        val filtered = workoutSessions.filter { session ->
+            val afterStart = startDate == null || session.timestamp >= startDate
+            val beforeEnd = endDate == null || session.timestamp <= endDate
+            afterStart && beforeEnd
+        }
+        return exportWorkoutHistory(filtered, exerciseNames, weightUnit, formatWeight)
+    }
+
+    /**
      * Export all PRs grouped by exercise with progression data
      *
      * @param personalRecords List of personal records to export

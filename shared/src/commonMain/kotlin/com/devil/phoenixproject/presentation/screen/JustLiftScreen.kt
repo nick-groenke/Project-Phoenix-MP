@@ -1,45 +1,55 @@
 package com.devil.phoenixproject.presentation.screen
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.EaseInOutQuad
+import androidx.compose.animation.core.EaseOutBack
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.data.repository.AutoStopUiState
 import com.devil.phoenixproject.domain.model.*
 import com.devil.phoenixproject.presentation.components.CompactNumberPicker
-import com.devil.phoenixproject.presentation.components.ExpressiveCard
 import com.devil.phoenixproject.presentation.components.ExpressiveSlider
 import com.devil.phoenixproject.presentation.components.ProgressionSlider
 import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
 import com.devil.phoenixproject.ui.theme.Spacing
 import com.devil.phoenixproject.ui.theme.ThemeMode
-import kotlinx.coroutines.delay
 
 /**
  * Just Lift screen - quick workout configuration.
@@ -152,29 +162,19 @@ fun JustLiftScreen(
     }
 
     Scaffold { padding ->
-        // Use Material Theme colors for dynamic background
-        val backgroundGradient = Brush.verticalGradient(
-            colors = listOf(
-                MaterialTheme.colorScheme.surface,
-                MaterialTheme.colorScheme.surfaceContainer,
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-            )
-        )
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(backgroundGradient)
+                .background(MaterialTheme.colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(Spacing.large)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(Spacing.medium)
+                    .padding(horizontal = Spacing.medium, vertical = Spacing.small),
+                verticalArrangement = Arrangement.spacedBy(Spacing.small)
             ) {
-                // Only show Auto-Start/Stop Card when IDLE
+                // Auto-Start/Stop Banner (compact, always visible when idle)
                 if (workoutState is WorkoutState.Idle) {
                     val autoStartCountdown by viewModel.autoStartCountdown.collectAsState()
                     AutoStartStopCard(
@@ -184,96 +184,80 @@ fun JustLiftScreen(
                     )
                 }
 
-                // Mode Selection Card
-                var isModePressed by remember { mutableStateOf(false) }
-                val modeScale by animateFloatAsState(
-                    targetValue = if (isModePressed) 0.95f else 1f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessMedium
+                // Mode Selection Card - expands to fill space
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     ),
-                    label = "modeScale"
-                )
-                ExpressiveCard(
-                    onClick = { isModePressed = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                    elevation = CardDefaults.cardElevation(defaultElevation = if (isModePressed) 8.dp else 12.dp),
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    shape = RoundedCornerShape(16.dp)
                 ) {
                     Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(Spacing.medium)
+                            .fillMaxSize()
+                            .padding(Spacing.medium),
+                        verticalArrangement = Arrangement.SpaceEvenly
                     ) {
                         Text(
                             "Workout Mode",
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(modifier = Modifier.height(Spacing.small))
 
-                        // Segmented Button Row for Modes
                         SingleChoiceSegmentedButtonRow(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             val modes = listOf(
-                                Triple("Old School", WorkoutMode.OldSchool, 0),
-                                Triple("Pump", WorkoutMode.Pump, 1),
-                                Triple("Echo", WorkoutMode.Echo(echoLevel), 2)
+                                "Old School" to WorkoutMode.OldSchool,
+                                "Pump" to WorkoutMode.Pump,
+                                "Echo" to WorkoutMode.Echo(echoLevel)
                             )
-
-                            modes.forEachIndexed { index, (label, mode, _) ->
+                            modes.forEachIndexed { index, (label, mode) ->
                                 SegmentedButton(
                                     shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
                                     onClick = { selectedMode = mode },
                                     selected = selectedMode::class == mode::class,
-                                    icon = {} // No icon to save space
+                                    icon = {}
                                 ) {
                                     Text(label, maxLines = 1)
                                 }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(Spacing.small))
-
                         Text(
                             when (selectedMode) {
-                                is WorkoutMode.OldSchool -> "Constant resistance throughout the movement."
-                                is WorkoutMode.Pump -> "Resistance increases the faster you go."
-                                is WorkoutMode.Echo -> "Adaptive resistance with echo feedback."
+                                is WorkoutMode.OldSchool -> "Constant resistance throughout the movement"
+                                is WorkoutMode.Pump -> "Resistance increases the faster you go"
+                                is WorkoutMode.Echo -> "Adaptive resistance with echo feedback"
                                 else -> selectedMode.displayName
                             },
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-                LaunchedEffect(isModePressed) {
-                    if (isModePressed) {
-                        delay(100)
-                        isModePressed = false
-                    }
-                }
 
-                // Mode-specific options
-
-                // OLD SCHOOL & PUMP: Weight per cable, Progression/Regression
+                // Mode-specific options - OLD SCHOOL & PUMP
                 val isOldSchoolOrPump = selectedMode is WorkoutMode.OldSchool || selectedMode is WorkoutMode.Pump
                 if (isOldSchoolOrPump) {
                     // Weight per Cable Card
-                    ExpressiveCard(
-                        onClick = {},
-                        enabled = false, // Static card
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(Spacing.medium)
+                                .fillMaxSize()
+                                .padding(Spacing.medium),
+                            verticalArrangement = Arrangement.Center
                         ) {
                             val weightSuffix = if (weightUnit == WeightUnit.LB) "lbs" else "kg"
                             val maxWeight = if (weightUnit == WeightUnit.LB) 220f else 100f
@@ -295,17 +279,20 @@ fun JustLiftScreen(
                     }
 
                     // Weight Change Per Rep Card
-                    ExpressiveCard(
-                        onClick = {},
-                        enabled = false,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(Spacing.medium)
+                                .fillMaxSize()
+                                .padding(Spacing.medium),
+                            verticalArrangement = Arrangement.SpaceEvenly
                         ) {
                             Text(
                                 "Weight Change Per Rep",
@@ -313,41 +300,41 @@ fun JustLiftScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(Spacing.medium))
-
-                            val maxWeightChange = 10f
 
                             ProgressionSlider(
                                 value = weightChangePerRep.toFloat(),
                                 onValueChange = { weightChangePerRep = it.toInt() },
-                                valueRange = -maxWeightChange..maxWeightChange,
+                                valueRange = -10f..10f,
                                 modifier = Modifier.fillMaxWidth()
                             )
+
                             Text(
                                 "Negative = Regression, Positive = Progression",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = Spacing.small)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
 
-                // ECHO MODE: Eccentric Load, Echo Level
+                // Mode-specific options - ECHO MODE
                 val isEchoMode = selectedMode is WorkoutMode.Echo
                 if (isEchoMode) {
                     // Eccentric Load Card
-                    ExpressiveCard(
-                        onClick = {},
-                        enabled = false,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(Spacing.medium)
+                                .fillMaxSize()
+                                .padding(Spacing.medium),
+                            verticalArrangement = Arrangement.SpaceEvenly
                         ) {
                             Text(
                                 "Eccentric Load: ${eccentricLoad.percentage}%",
@@ -355,7 +342,6 @@ fun JustLiftScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(Spacing.medium))
 
                             val eccentricLoadValues = listOf(
                                 EccentricLoad.LOAD_0,
@@ -365,41 +351,29 @@ fun JustLiftScreen(
                                 EccentricLoad.LOAD_125,
                                 EccentricLoad.LOAD_150
                             )
-                            val currentIndex = eccentricLoadValues.indexOf(eccentricLoad).let {
-                                if (it < 0) 3 else it
-                            }
+                            val currentIndex = eccentricLoadValues.indexOf(eccentricLoad).coerceAtLeast(0)
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "0%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("0%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("150%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                ExpressiveSlider(
+                                    value = currentIndex.toFloat(),
+                                    onValueChange = { value ->
+                                        eccentricLoad = eccentricLoadValues[value.toInt().coerceIn(0, eccentricLoadValues.lastIndex)]
+                                    },
+                                    valueRange = 0f..(eccentricLoadValues.lastIndex).toFloat(),
+                                    steps = eccentricLoadValues.size - 2,
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                                Text(
-                                    text = "150%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
-
-                            ExpressiveSlider(
-                                value = currentIndex.toFloat(),
-                                onValueChange = { value ->
-                                    val index = value.toInt().coerceIn(0, eccentricLoadValues.size - 1)
-                                    eccentricLoad = eccentricLoadValues[index]
-                                },
-                                valueRange = 0f..(eccentricLoadValues.size - 1).toFloat(),
-                                steps = eccentricLoadValues.size - 2,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            Spacer(modifier = Modifier.height(Spacing.small))
 
                             Text(
-                                "Load percentage applied during eccentric (lowering) phase",
+                                "Load during eccentric (lowering) phase",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -407,33 +381,34 @@ fun JustLiftScreen(
                     }
 
                     // Echo Level Card
-                    ExpressiveCard(
-                        onClick = {},
-                        enabled = false,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
-                        border = BorderStroke(2.dp, MaterialTheme.colorScheme.outlineVariant)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
                     ) {
                         Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(Spacing.medium)
+                                .fillMaxSize()
+                                .padding(Spacing.medium),
+                            verticalArrangement = Arrangement.SpaceEvenly
                         ) {
                             Text(
                                 "Echo Level",
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            Spacer(modifier = Modifier.height(Spacing.small))
 
                             SingleChoiceSegmentedButtonRow(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                val levels = EchoLevel.entries
-                                levels.forEachIndexed { index, level ->
+                                EchoLevel.entries.forEachIndexed { index, level ->
                                     SegmentedButton(
-                                        shape = SegmentedButtonDefaults.itemShape(index = index, count = levels.size),
+                                        shape = SegmentedButtonDefaults.itemShape(index = index, count = EchoLevel.entries.size),
                                         onClick = {
                                             echoLevel = level
                                             selectedMode = WorkoutMode.Echo(level)
@@ -448,10 +423,8 @@ fun JustLiftScreen(
                     }
                 }
 
-                // Current workout status if active
+                // Active workout status (replaces mode cards when active)
                 if (workoutState !is WorkoutState.Idle) {
-                    HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.medium))
-
                     ActiveStatusCard(
                         workoutState = workoutState,
                         currentMetric = currentMetric,
@@ -617,9 +590,17 @@ fun ActiveStatusCard(
     }
 }
 
+// Auto-start theme colors
+private val AutoStartGreen = Color(0xFF10B981)
+private val AutoStartGreenLight = Color(0xFF34D399)
+private val CountdownOrange = Color(0xFFF59E0B)
+private val CountdownOrangeLight = Color(0xFFFBBF24)
+private val StopRed = Color(0xFFEF4444)
+private val StopRedLight = Color(0xFFF87171)
+
 /**
- * Unified Auto-Start/Auto-Stop Card for Just Lift Mode
- * Shows auto-start when idle, auto-stop when active
+ * Compact Auto-Start/Auto-Stop Banner for Just Lift Mode
+ * Features animated rings, pulsing glow, and countdown display
  */
 @Composable
 fun AutoStartStopCard(
@@ -629,104 +610,261 @@ fun AutoStartStopCard(
 ) {
     val isIdle = workoutState is WorkoutState.Idle
     val isActive = workoutState is WorkoutState.Active
+    val isCountingDown = autoStartCountdown != null
+    val isStopping = autoStopState.isActive
 
-    // Show card when idle (for auto-start) or active (for auto-stop)
-    if (isIdle || isActive) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = when {
-                    autoStartCountdown != null -> MaterialTheme.colorScheme.primaryContainer
-                    autoStopState.isActive -> MaterialTheme.colorScheme.errorContainer
-                    isActive -> MaterialTheme.colorScheme.surfaceVariant
-                    else -> MaterialTheme.colorScheme.tertiaryContainer
-                }
-            ),
-            shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-            border = BorderStroke(2.dp, if (isIdle) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline)
+    // Only show when relevant
+    if (!isIdle && !isActive) return
+
+    // Infinite transition for continuous animations
+    val infiniteTransition = rememberInfiniteTransition(label = "autoStart")
+
+    // Pulse animation for "ready" state
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = EaseInOutQuad),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
+    // Glow intensity animation
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = EaseInOutQuad),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+
+    // Rotating ring animation for countdown
+    val ringRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "rotation"
+    )
+
+    // Determine colors based on state
+    val primaryColor = when {
+        isStopping -> StopRed
+        isCountingDown -> CountdownOrange
+        else -> AutoStartGreen
+    }
+    val secondaryColor = when {
+        isStopping -> StopRedLight
+        isCountingDown -> CountdownOrangeLight
+        else -> AutoStartGreenLight
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isCountingDown || isStopping) 8.dp else 4.dp
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            primaryColor.copy(alpha = 0.1f),
+                            Color.Transparent
+                        )
+                    )
+                )
+                .padding(horizontal = Spacing.medium, vertical = Spacing.small),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(Spacing.medium),
-                horizontalAlignment = Alignment.CenterHorizontally
+            // Left: Animated indicator
+            Box(
+                modifier = Modifier.size(56.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = if (isIdle) Icons.Default.PlayCircle else Icons.Default.PanTool,
-                        contentDescription = if (isIdle) "Start workout" else "Hands on handles",
-                        modifier = Modifier.size(32.dp),
-                        tint = when {
-                            autoStartCountdown != null -> MaterialTheme.colorScheme.onPrimaryContainer
-                            autoStopState.isActive -> MaterialTheme.colorScheme.onErrorContainer
-                            isActive -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onSecondaryContainer
+                if (isCountingDown || isStopping) {
+                    // Rotating ring
+                    Canvas(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .alpha(0.6f)
+                    ) {
+                        rotate(ringRotation) {
+                            drawArc(
+                                color = primaryColor,
+                                startAngle = 0f,
+                                sweepAngle = 120f,
+                                useCenter = false,
+                                style = Stroke(width = 3f, cap = StrokeCap.Round),
+                                size = Size(size.width, size.height)
+                            )
                         }
-                    )
-                    Spacer(Modifier.width(Spacing.small))
-                    Text(
-                        text = when {
-                            autoStartCountdown != null -> "Starting..."
-                            autoStopState.isActive -> "Stopping in ${autoStopState.secondsRemaining}s..."
-                            isActive -> "Auto-Stop Ready"
-                            else -> "Auto-Start Ready"
+                    }
+
+                    // Progress ring
+                    val progress = if (isStopping) autoStopState.progress else 0.6f
+                    Canvas(modifier = Modifier.size(44.dp)) {
+                        drawArc(
+                            color = primaryColor.copy(alpha = 0.2f),
+                            startAngle = -90f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = Stroke(width = 4f, cap = StrokeCap.Round),
+                            size = Size(size.width, size.height)
+                        )
+                        drawArc(
+                            color = primaryColor,
+                            startAngle = -90f,
+                            sweepAngle = 360f * progress,
+                            useCenter = false,
+                            style = Stroke(width = 4f, cap = StrokeCap.Round),
+                            size = Size(size.width, size.height)
+                        )
+                    }
+
+                    // Countdown number
+                    val countValue = if (isStopping) autoStopState.secondsRemaining else autoStartCountdown ?: 0
+                    AnimatedContent(
+                        targetState = countValue,
+                        transitionSpec = {
+                            (scaleIn(initialScale = 1.3f, animationSpec = tween(200)) + fadeIn())
+                                .togetherWith(scaleOut(targetScale = 0.7f) + fadeOut())
                         },
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = when {
-                            autoStartCountdown != null -> MaterialTheme.colorScheme.onPrimaryContainer
-                            autoStopState.isActive -> MaterialTheme.colorScheme.onErrorContainer
-                            isActive -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onTertiaryContainer
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(Spacing.small))
-
-                // Progress for countdowns
-                if (autoStartCountdown != null) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.small))
-                } else if (autoStopState.isActive) {
-                    LinearProgressIndicator(
-                        progress = { autoStopState.progress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp),
-                        color = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.small))
-                }
-
-                // Instructions
-                val instructionText = if (isIdle) {
-                    "Grab and hold handles (~5s) to start"
+                        label = "countdown"
+                    ) { count ->
+                        Text(
+                            text = "$count",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Black,
+                            color = primaryColor
+                        )
+                    }
                 } else {
-                    "Put handles down for 5 seconds to stop"
+                    // Pulsing glow for ready state
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .scale(pulseScale)
+                            .alpha(glowAlpha * 0.5f)
+                            .blur(12.dp)
+                            .background(primaryColor, CircleShape)
+                    )
+
+                    // Handle grip icon - two parallel bars
+                    Canvas(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .scale(pulseScale)
+                    ) {
+                        val barWidth = 6f
+                        val barHeight = size.height * 0.7f
+                        val spacing = size.width * 0.35f
+                        val cornerRadius = 3f
+
+                        // Left handle bar
+                        drawRoundRect(
+                            color = primaryColor,
+                            topLeft = Offset(
+                                (size.width - spacing) / 2 - barWidth,
+                                (size.height - barHeight) / 2
+                            ),
+                            size = Size(barWidth, barHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadius)
+                        )
+
+                        // Right handle bar
+                        drawRoundRect(
+                            color = primaryColor,
+                            topLeft = Offset(
+                                (size.width + spacing) / 2,
+                                (size.height - barHeight) / 2
+                            ),
+                            size = Size(barWidth, barHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadius)
+                        )
+
+                        // Grip indicators (small horizontal lines)
+                        val gripColor = primaryColor.copy(alpha = 0.6f)
+                        val gripWidth = barWidth * 1.5f
+                        val gripHeight = 2f
+                        listOf(0.3f, 0.5f, 0.7f).forEach { ratio ->
+                            val y = (size.height - barHeight) / 2 + barHeight * ratio
+                            // Left grip marks
+                            drawRoundRect(
+                                color = gripColor,
+                                topLeft = Offset(
+                                    (size.width - spacing) / 2 - barWidth - 2f,
+                                    y - gripHeight / 2
+                                ),
+                                size = Size(gripWidth, gripHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(1f)
+                            )
+                            // Right grip marks
+                            drawRoundRect(
+                                color = gripColor,
+                                topLeft = Offset(
+                                    (size.width + spacing) / 2 + barWidth - gripWidth + 2f,
+                                    y - gripHeight / 2
+                                ),
+                                size = Size(gripWidth, gripHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(1f)
+                            )
+                        }
+                    }
                 }
+            }
+
+            Spacer(modifier = Modifier.width(Spacing.medium))
+
+            // Center: Text content
+            Column(modifier = Modifier.weight(1f)) {
+                // Status label
                 Text(
-                    text = instructionText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = when {
-                        autoStartCountdown != null -> MaterialTheme.colorScheme.onPrimaryContainer
-                        autoStopState.isActive -> MaterialTheme.colorScheme.onErrorContainer
-                        isActive -> MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.onTertiaryContainer
+                    text = when {
+                        isStopping -> "AUTO-STOP"
+                        isCountingDown -> "STARTING..."
+                        isActive -> "AUTO-STOP READY"
+                        else -> "AUTO-START READY"
                     },
-                    textAlign = TextAlign.Center
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = primaryColor
+                )
+
+                // Instruction
+                Text(
+                    text = when {
+                        isStopping -> "Release handles to stop"
+                        isCountingDown -> "Hold steady"
+                        isActive -> "Release handles for 5s"
+                        else -> "Grab handles to start"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            // Right: Status indicator dot
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .scale(if (!isCountingDown && !isStopping) pulseScale else 1f)
+                    .background(
+                        color = primaryColor.copy(alpha = glowAlpha),
+                        shape = CircleShape
+                    )
+            )
         }
     }
 }

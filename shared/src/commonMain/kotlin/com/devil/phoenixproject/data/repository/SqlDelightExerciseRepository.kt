@@ -8,6 +8,7 @@ import com.devil.phoenixproject.data.local.ExerciseImporter
 import com.devil.phoenixproject.database.VitruvianDatabase
 import com.devil.phoenixproject.domain.model.CableConfiguration
 import com.devil.phoenixproject.domain.model.Exercise
+import com.devil.phoenixproject.domain.model.currentTimeMillis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.Flow
@@ -42,7 +43,9 @@ class SqlDelightExerciseRepository(
                 CableConfiguration.valueOf(defaultCableConfig)
             } catch (e: Exception) {
                 CableConfiguration.DOUBLE
-            }
+            },
+            isFavorite = isFavorite == 1L,
+            isCustom = isCustom == 1L
         )
     }
 
@@ -153,5 +156,97 @@ class SqlDelightExerciseRepository(
 
     override suspend fun updateFromGitHub(): Result<Int> {
         return exerciseImporter.updateFromGitHub()
+    }
+
+    // ========== Custom Exercise Management ==========
+
+    override fun getCustomExercises(): Flow<List<Exercise>> {
+        return queries.selectCustomExercises(::mapToExercise)
+            .asFlow()
+            .mapToList(Dispatchers.IO)
+    }
+
+    override suspend fun createCustomExercise(exercise: Exercise): Result<Exercise> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Generate a unique ID for custom exercises
+                val customId = "custom_${currentTimeMillis()}"
+
+                queries.insertExercise(
+                    id = customId,
+                    name = exercise.name,
+                    muscleGroup = exercise.muscleGroup,
+                    muscleGroups = exercise.muscleGroups,
+                    equipment = exercise.equipment,
+                    defaultCableConfig = exercise.defaultCableConfig.name,
+                    isFavorite = if (exercise.isFavorite) 1L else 0L,
+                    isCustom = 1L // Always mark as custom
+                )
+
+                Logger.d { "Created custom exercise: ${exercise.name} with ID: $customId" }
+
+                // Return the created exercise with the generated ID
+                Result.success(exercise.copy(id = customId, isCustom = true))
+            } catch (e: Exception) {
+                Logger.e(e) { "Failed to create custom exercise: ${exercise.name}" }
+                Result.failure(e)
+            }
+        }
+    }
+
+    override suspend fun updateCustomExercise(exercise: Exercise): Result<Exercise> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val exerciseId = exercise.id
+                    ?: return@withContext Result.failure(IllegalArgumentException("Exercise ID is required for update"))
+
+                // Verify it's a custom exercise
+                val existing = queries.selectExerciseById(exerciseId).executeAsOneOrNull()
+                if (existing == null) {
+                    return@withContext Result.failure(IllegalArgumentException("Exercise not found: $exerciseId"))
+                }
+                if (existing.isCustom != 1L) {
+                    return@withContext Result.failure(IllegalArgumentException("Cannot update non-custom exercise"))
+                }
+
+                queries.updateCustomExercise(
+                    name = exercise.name,
+                    muscleGroup = exercise.muscleGroup,
+                    muscleGroups = exercise.muscleGroups,
+                    equipment = exercise.equipment,
+                    defaultCableConfig = exercise.defaultCableConfig.name,
+                    id = exerciseId
+                )
+
+                Logger.d { "Updated custom exercise: ${exercise.name}" }
+                Result.success(exercise)
+            } catch (e: Exception) {
+                Logger.e(e) { "Failed to update custom exercise: ${exercise.name}" }
+                Result.failure(e)
+            }
+        }
+    }
+
+    override suspend fun deleteCustomExercise(exerciseId: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Verify it's a custom exercise
+                val existing = queries.selectExerciseById(exerciseId).executeAsOneOrNull()
+                if (existing == null) {
+                    return@withContext Result.failure(IllegalArgumentException("Exercise not found: $exerciseId"))
+                }
+                if (existing.isCustom != 1L) {
+                    return@withContext Result.failure(IllegalArgumentException("Cannot delete non-custom exercise"))
+                }
+
+                queries.deleteCustomExercise(exerciseId)
+
+                Logger.d { "Deleted custom exercise: $exerciseId" }
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Logger.e(e) { "Failed to delete custom exercise: $exerciseId" }
+                Result.failure(e)
+            }
+        }
     }
 }

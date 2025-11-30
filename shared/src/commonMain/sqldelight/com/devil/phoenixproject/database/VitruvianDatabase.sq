@@ -75,7 +75,6 @@ CREATE TABLE PersonalRecord (
 CREATE TABLE Routine (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    description TEXT,
     createdAt INTEGER NOT NULL,
     updatedAt INTEGER NOT NULL
 );
@@ -91,6 +90,19 @@ CREATE TABLE RoutineExercise (
     targetReps INTEGER NOT NULL,
     targetSets INTEGER NOT NULL,
     mode TEXT NOT NULL,
+    cableConfig TEXT NOT NULL DEFAULT 'DOUBLE',
+    setRepsJson TEXT NOT NULL DEFAULT '[10,10,10]',
+    setWeightsJson TEXT NOT NULL DEFAULT '[]',
+    setRestSecondsJson TEXT NOT NULL DEFAULT '[]',
+    eccentricLoad INTEGER NOT NULL DEFAULT 100,
+    echoLevel INTEGER NOT NULL DEFAULT 2,
+    progressionKg REAL NOT NULL DEFAULT 0.0,
+    duration INTEGER,
+    isAMRAP INTEGER NOT NULL DEFAULT 0,
+    perSetRestTime INTEGER NOT NULL DEFAULT 0,
+    supersetGroupId TEXT,
+    supersetOrder INTEGER NOT NULL DEFAULT 0,
+    supersetRestSeconds INTEGER NOT NULL DEFAULT 10,
     FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE
 );
 
@@ -127,6 +139,21 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 countExercises:
 SELECT COUNT(*) FROM Exercise;
+
+-- Custom Exercise Queries
+selectCustomExercises:
+SELECT * FROM Exercise WHERE isCustom = 1 ORDER BY name ASC;
+
+updateCustomExercise:
+UPDATE Exercise
+SET name = ?, muscleGroup = ?, muscleGroups = ?, equipment = ?, defaultCableConfig = ?
+WHERE id = ? AND isCustom = 1;
+
+deleteCustomExercise:
+DELETE FROM Exercise WHERE id = ? AND isCustom = 1;
+
+deleteSession:
+DELETE FROM WorkoutSession WHERE id = ?;
 
 -- Exercise Video Queries
 selectVideosByExercise:
@@ -196,16 +223,124 @@ selectRoutineById:
 SELECT * FROM Routine WHERE id = ?;
 
 insertRoutine:
-INSERT INTO Routine (name, description, createdAt, updatedAt) VALUES (?, ?, ?, ?);
+INSERT INTO Routine (name, createdAt, updatedAt) VALUES (?, ?, ?);
 
 -- Routine Exercise Queries
 selectExercisesByRoutine:
 SELECT * FROM RoutineExercise WHERE routineId = ? ORDER BY orderIndex ASC;
 
 insertRoutineExercise:
-INSERT INTO RoutineExercise (routineId, exerciseId, exerciseName, orderIndex, targetWeight, targetReps, targetSets, mode)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO RoutineExercise (
+    routineId, exerciseId, exerciseName, orderIndex, targetWeight, targetReps, targetSets, mode,
+    cableConfig, setRepsJson, setWeightsJson, setRestSecondsJson, eccentricLoad, echoLevel,
+    progressionKg, duration, isAMRAP, perSetRestTime, supersetGroupId, supersetOrder, supersetRestSeconds
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteRoutineExercises:
+DELETE FROM RoutineExercise WHERE routineId = ?;
+
+deleteRoutineById:
+DELETE FROM Routine WHERE id = ?;
+
+updateRoutineById:
+UPDATE Routine SET name = ?, updatedAt = ? WHERE id = ?;
+
+getLastInsertedRoutineId:
+SELECT last_insert_rowid();
 
 -- Analytics Queries
 selectVolumeHistory:
 SELECT timestamp, totalReps, weightPerCableKg FROM WorkoutSession ORDER BY timestamp ASC;
+
+-- ==================== GAMIFICATION TABLES ====================
+
+-- Earned Badges
+CREATE TABLE EarnedBadge (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    badgeId TEXT NOT NULL UNIQUE,
+    earnedAt INTEGER NOT NULL,
+    celebratedAt INTEGER
+);
+
+-- Streak History (for tracking historical streaks)
+CREATE TABLE StreakHistory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    startDate INTEGER NOT NULL,
+    endDate INTEGER NOT NULL,
+    length INTEGER NOT NULL
+);
+
+-- Aggregated Gamification Stats (single row table)
+CREATE TABLE GamificationStats (
+    id INTEGER PRIMARY KEY,
+    totalWorkouts INTEGER NOT NULL DEFAULT 0,
+    totalReps INTEGER NOT NULL DEFAULT 0,
+    totalVolumeKg INTEGER NOT NULL DEFAULT 0,
+    longestStreak INTEGER NOT NULL DEFAULT 0,
+    currentStreak INTEGER NOT NULL DEFAULT 0,
+    uniqueExercisesUsed INTEGER NOT NULL DEFAULT 0,
+    prsAchieved INTEGER NOT NULL DEFAULT 0,
+    lastWorkoutDate INTEGER,
+    streakStartDate INTEGER,
+    lastUpdated INTEGER NOT NULL
+);
+
+-- ==================== GAMIFICATION QUERIES ====================
+
+-- Earned Badge Queries
+selectAllEarnedBadges:
+SELECT * FROM EarnedBadge ORDER BY earnedAt DESC;
+
+selectEarnedBadgeById:
+SELECT * FROM EarnedBadge WHERE badgeId = ?;
+
+selectUncelebratedBadges:
+SELECT * FROM EarnedBadge WHERE celebratedAt IS NULL ORDER BY earnedAt DESC;
+
+countEarnedBadges:
+SELECT COUNT(*) FROM EarnedBadge;
+
+insertEarnedBadge:
+INSERT OR IGNORE INTO EarnedBadge (badgeId, earnedAt) VALUES (?, ?);
+
+markBadgeCelebrated:
+UPDATE EarnedBadge SET celebratedAt = ? WHERE badgeId = ?;
+
+-- Streak History Queries
+selectAllStreakHistory:
+SELECT * FROM StreakHistory ORDER BY length DESC;
+
+selectLongestStreak:
+SELECT MAX(length) AS longestStreak FROM StreakHistory;
+
+insertStreakHistory:
+INSERT INTO StreakHistory (startDate, endDate, length) VALUES (?, ?, ?);
+
+-- Gamification Stats Queries
+selectGamificationStats:
+SELECT * FROM GamificationStats WHERE id = 1;
+
+upsertGamificationStats:
+INSERT OR REPLACE INTO GamificationStats
+(id, totalWorkouts, totalReps, totalVolumeKg, longestStreak, currentStreak, uniqueExercisesUsed, prsAchieved, lastWorkoutDate, streakStartDate, lastUpdated)
+VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Analytics helpers for gamification
+countTotalWorkouts:
+SELECT COUNT(*) FROM WorkoutSession;
+
+countTotalReps:
+SELECT SUM(totalReps) FROM WorkoutSession;
+
+countTotalVolume:
+SELECT SUM(totalReps * weightPerCableKg * 2) FROM WorkoutSession;
+
+countUniqueExercises:
+SELECT COUNT(DISTINCT exerciseId) FROM WorkoutSession WHERE exerciseId IS NOT NULL;
+
+countPersonalRecords:
+SELECT COUNT(*) FROM PersonalRecord;
+
+selectWorkoutDates:
+SELECT DISTINCT DATE(timestamp / 1000, 'unixepoch') AS workoutDate FROM WorkoutSession ORDER BY timestamp DESC;

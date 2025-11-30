@@ -8,6 +8,8 @@ import com.devil.phoenixproject.data.repository.*
 import com.devil.phoenixproject.domain.usecase.RepCounterFromMachine
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
 import com.devil.phoenixproject.presentation.viewmodel.ConnectionLogsViewModel
+import com.devil.phoenixproject.presentation.viewmodel.ProtocolTesterViewModel
+import com.devil.phoenixproject.presentation.viewmodel.GamificationViewModel
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
@@ -23,9 +25,11 @@ val commonModule = module {
 
     // Repositories
     // BleRepository is provided by platformModule
-    single<WorkoutRepository> { SqlDelightWorkoutRepository(get()) }
+    // Order matters: ExerciseRepository must be created before WorkoutRepository
     single<ExerciseRepository> { SqlDelightExerciseRepository(get(), get()) }
+    single<WorkoutRepository> { SqlDelightWorkoutRepository(get(), get()) }
     single<PersonalRecordRepository> { SqlDelightPersonalRecordRepository(get()) }
+    single<GamificationRepository> { SqlDelightGamificationRepository(get()) }
     
     // Preferences
     // Settings is provided by platformModule
@@ -35,6 +39,8 @@ val commonModule = module {
     single { RepCounterFromMachine() }
     
     // ViewModels
-    factory { MainViewModel(get(), get(), get(), get(), get(), get()) }
+    factory { MainViewModel(get(), get(), get(), get(), get(), get(), get()) }
     factory { ConnectionLogsViewModel() }
+    factory { ProtocolTesterViewModel(get()) }
+    factory { GamificationViewModel(get()) }
 }

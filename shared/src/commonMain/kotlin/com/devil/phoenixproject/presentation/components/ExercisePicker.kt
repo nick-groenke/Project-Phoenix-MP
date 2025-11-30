@@ -9,7 +9,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
@@ -31,6 +34,7 @@ import coil3.request.crossfade
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.data.repository.ExerciseVideoEntity
 import com.devil.phoenixproject.domain.model.Exercise
+import com.devil.phoenixproject.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
 /**
@@ -94,17 +98,26 @@ fun ExercisePickerDialog(
     exerciseRepository: ExerciseRepository,
     enableVideoPlayback: Boolean = true,
     modifier: Modifier = Modifier,
-    fullScreen: Boolean = false
+    fullScreen: Boolean = false,
+    themeMode: ThemeMode = ThemeMode.DARK,
+    enableCustomExercises: Boolean = true
 ) {
     if (!showDialog) return
 
+    val coroutineScope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var selectedMuscleFilter by remember { mutableStateOf("All") }
     var selectedEquipmentFilter by remember { mutableStateOf("All") }
     var showFavoritesOnly by remember { mutableStateOf(false) }
+    var showCustomOnly by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var exerciseToEdit by remember { mutableStateOf<Exercise?>(null) }
 
-    val allExercises by remember(searchQuery, selectedMuscleFilter, showFavoritesOnly) {
+    val customExercises by exerciseRepository.getCustomExercises().collectAsState(initial = emptyList())
+
+    val allExercises by remember(searchQuery, selectedMuscleFilter, showFavoritesOnly, showCustomOnly) {
         when {
+            showCustomOnly -> exerciseRepository.getCustomExercises()
             showFavoritesOnly -> exerciseRepository.getFavorites()
             searchQuery.isNotBlank() -> exerciseRepository.searchExercises(searchQuery)
             selectedMuscleFilter != "All" -> exerciseRepository.filterByMuscleGroup(selectedMuscleFilter)
@@ -128,6 +141,37 @@ fun ExercisePickerDialog(
         exerciseRepository.importExercises()
     }
 
+    // Create/Edit Exercise Dialog
+    if (showCreateDialog || exerciseToEdit != null) {
+        CreateExerciseDialog(
+            existingExercise = exerciseToEdit,
+            onSave = { exercise ->
+                coroutineScope.launch {
+                    if (exerciseToEdit != null) {
+                        exerciseRepository.updateCustomExercise(exercise)
+                    } else {
+                        exerciseRepository.createCustomExercise(exercise)
+                    }
+                }
+                showCreateDialog = false
+                exerciseToEdit = null
+            },
+            onDelete = if (exerciseToEdit != null) {
+                {
+                    coroutineScope.launch {
+                        exerciseToEdit?.id?.let { exerciseRepository.deleteCustomExercise(it) }
+                    }
+                    exerciseToEdit = null
+                }
+            } else null,
+            onDismiss = {
+                showCreateDialog = false
+                exerciseToEdit = null
+            },
+            themeMode = themeMode
+        )
+    }
+
     if (fullScreen) {
         Dialog(
             onDismissRequest = onDismiss,
@@ -145,6 +189,13 @@ fun ExercisePickerDialog(
                             IconButton(onClick = onDismiss) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
+                        },
+                        actions = {
+                            if (enableCustomExercises) {
+                                IconButton(onClick = { showCreateDialog = true }) {
+                                    Icon(Icons.Default.Add, contentDescription = "Create Exercise")
+                                }
+                            }
                         }
                     )
                 }
@@ -157,12 +208,24 @@ fun ExercisePickerDialog(
                         showFavoritesOnly = showFavoritesOnly,
                         onShowFavoritesOnlyChange = {
                             showFavoritesOnly = it
+                            showCustomOnly = false
                             if (it) {
                                 searchQuery = ""
                                 selectedMuscleFilter = "All"
                                 selectedEquipmentFilter = "All"
                             }
                         },
+                        showCustomOnly = showCustomOnly,
+                        onShowCustomOnlyChange = {
+                            showCustomOnly = it
+                            showFavoritesOnly = false
+                            if (it) {
+                                searchQuery = ""
+                                selectedMuscleFilter = "All"
+                                selectedEquipmentFilter = "All"
+                            }
+                        },
+                        customExerciseCount = customExercises.size,
                         selectedMuscleFilter = selectedMuscleFilter,
                         onMuscleFilterChange = { selectedMuscleFilter = it },
                         selectedEquipmentFilter = selectedEquipmentFilter,
@@ -171,8 +234,13 @@ fun ExercisePickerDialog(
                             onExerciseSelected(it)
                             onDismiss()
                         },
+                        onEditExercise = if (enableCustomExercises) { exercise ->
+                            exerciseToEdit = exercise
+                        } else null,
                         exerciseRepository = exerciseRepository,
                         enableVideoPlayback = enableVideoPlayback,
+                        enableCustomExercises = enableCustomExercises,
+                        onCreateExercise = { showCreateDialog = true },
                         fullScreen = true
                     )
                 }
@@ -192,12 +260,24 @@ fun ExercisePickerDialog(
                 showFavoritesOnly = showFavoritesOnly,
                 onShowFavoritesOnlyChange = {
                     showFavoritesOnly = it
+                    showCustomOnly = false
                     if (it) {
                         searchQuery = ""
                         selectedMuscleFilter = "All"
                         selectedEquipmentFilter = "All"
                     }
                 },
+                showCustomOnly = showCustomOnly,
+                onShowCustomOnlyChange = {
+                    showCustomOnly = it
+                    showFavoritesOnly = false
+                    if (it) {
+                        searchQuery = ""
+                        selectedMuscleFilter = "All"
+                        selectedEquipmentFilter = "All"
+                    }
+                },
+                customExerciseCount = customExercises.size,
                 selectedMuscleFilter = selectedMuscleFilter,
                 onMuscleFilterChange = { selectedMuscleFilter = it },
                 selectedEquipmentFilter = selectedEquipmentFilter,
@@ -206,8 +286,13 @@ fun ExercisePickerDialog(
                     onExerciseSelected(it)
                     onDismiss()
                 },
+                onEditExercise = if (enableCustomExercises) { exercise ->
+                    exerciseToEdit = exercise
+                } else null,
                 exerciseRepository = exerciseRepository,
                 enableVideoPlayback = enableVideoPlayback,
+                enableCustomExercises = enableCustomExercises,
+                onCreateExercise = { showCreateDialog = true },
                 fullScreen = false
             )
         }
@@ -224,145 +309,227 @@ fun ExercisePickerContent(
     onSearchQueryChange: (String) -> Unit,
     showFavoritesOnly: Boolean,
     onShowFavoritesOnlyChange: (Boolean) -> Unit,
+    showCustomOnly: Boolean = false,
+    onShowCustomOnlyChange: (Boolean) -> Unit = {},
+    customExerciseCount: Int = 0,
     selectedMuscleFilter: String,
     onMuscleFilterChange: (String) -> Unit,
     selectedEquipmentFilter: String,
     onEquipmentFilterChange: (String) -> Unit,
     onExerciseSelected: (Exercise) -> Unit,
+    onEditExercise: ((Exercise) -> Unit)? = null,
     exerciseRepository: ExerciseRepository,
     enableVideoPlayback: Boolean,
+    enableCustomExercises: Boolean = true,
+    onCreateExercise: () -> Unit = {},
     fullScreen: Boolean
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (fullScreen) Modifier.fillMaxHeight() else Modifier.fillMaxHeight(0.9f))
-            .padding(horizontal = 16.dp)
     ) {
-        // Title (only in bottom sheet mode)
-        if (!fullScreen) {
-            Text(
-                text = "Select Exercise",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-        }
-
-        // Search field
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            placeholder = { Text("Search exercises...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            singleLine = true
-        )
-
-        // Favorites toggle
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
         ) {
-            Text(
-                text = "Show Favorites Only",
-                style = MaterialTheme.typography.labelMedium
-            )
-            Switch(
-                checked = showFavoritesOnly,
-                onCheckedChange = onShowFavoritesOnlyChange
-            )
-        }
-
-        // Muscle group filter chips
-        Text(
-            text = "Muscle Groups",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            val muscleFilters = listOf("All", "Chest", "Back", "Legs", "Shoulders", "Arms", "Core")
-            items(muscleFilters) { filter ->
-                FilterChip(
-                    selected = selectedMuscleFilter == filter,
-                    onClick = { onMuscleFilterChange(filter) },
-                    label = { Text(filter) }
-                )
-            }
-        }
-
-        // Equipment filter chips
-        Text(
-            text = "Equipment",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 16.dp)
-        ) {
-            val equipmentFilters = listOf(
-                "All", "Long Bar", "Short Bar", "Handles", "Rope",
-                "Belt", "Ankle Strap", "Bench", "Bodyweight"
-            )
-            items(equipmentFilters) { filter ->
-                FilterChip(
-                    selected = selectedEquipmentFilter == filter,
-                    onClick = { onEquipmentFilterChange(filter) },
-                    label = { Text(filter) }
-                )
-            }
-        }
-
-        // Exercise list
-        if (exercises.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                val hasActiveFilters = searchQuery.isNotBlank() ||
-                        selectedMuscleFilter != "All" ||
-                        selectedEquipmentFilter != "All"
-
-                if (hasActiveFilters) {
+            // Title (only in bottom sheet mode)
+            if (!fullScreen) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "No exercises found",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Select Exercise",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold
                     )
-                } else {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    if (enableCustomExercises) {
+                        IconButton(onClick = onCreateExercise) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = "Create Exercise",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Search field
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                placeholder = { Text("Search exercises...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                singleLine = true
+            )
+
+            // Filter toggles row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Favorites toggle
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Favorites",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    Switch(
+                        checked = showFavoritesOnly,
+                        onCheckedChange = onShowFavoritesOnlyChange,
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
+
+                // My Exercises toggle (only if custom exercises enabled)
+                if (enableCustomExercises) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CircularProgressIndicator()
                         Text(
-                            text = "Loading exercises...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "My Exercises ($customExerciseCount)",
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                        Switch(
+                            checked = showCustomOnly,
+                            onCheckedChange = onShowCustomOnlyChange,
+                            modifier = Modifier.height(24.dp)
                         )
                     }
                 }
             }
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+
+            // Muscle group filter chips
+            Text(
+                text = "Muscle Groups",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 12.dp)
             ) {
-                items(exercises) { exercise ->
-                    ExerciseListItem(
-                        exercise = exercise,
-                        exerciseRepository = exerciseRepository,
-                        onClick = { onExerciseSelected(exercise) },
-                        enableVideoPlayback = enableVideoPlayback
+                val muscleFilters = listOf("All", "Chest", "Back", "Legs", "Shoulders", "Arms", "Core")
+                items(muscleFilters) { filter ->
+                    FilterChip(
+                        selected = selectedMuscleFilter == filter,
+                        onClick = { onMuscleFilterChange(filter) },
+                        label = { Text(filter) }
                     )
+                }
+            }
+
+            // Equipment filter chips
+            Text(
+                text = "Equipment",
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                val equipmentFilters = listOf(
+                    "All", "Long Bar", "Short Bar", "Handles", "Rope",
+                    "Belt", "Ankle Strap", "Bench", "Bodyweight"
+                )
+                items(equipmentFilters) { filter ->
+                    FilterChip(
+                        selected = selectedEquipmentFilter == filter,
+                        onClick = { onEquipmentFilterChange(filter) },
+                        label = { Text(filter) }
+                    )
+                }
+            }
+
+            // Exercise list
+            if (exercises.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val hasActiveFilters = searchQuery.isNotBlank() ||
+                            selectedMuscleFilter != "All" ||
+                            selectedEquipmentFilter != "All" ||
+                            showFavoritesOnly
+
+                    if (showCustomOnly && customExerciseCount == 0) {
+                        // Empty custom exercises state
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                text = "No custom exercises yet",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "Create your own exercises to track workouts\nnot in the library",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                            if (enableCustomExercises) {
+                                Button(onClick = onCreateExercise) {
+                                    Icon(Icons.Default.Add, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Create Exercise")
+                                }
+                            }
+                        }
+                    } else if (hasActiveFilters) {
+                        Text(
+                            text = "No exercises found",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator()
+                            Text(
+                                text = "Loading exercises...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(exercises) { exercise ->
+                        ExerciseListItem(
+                            exercise = exercise,
+                            exerciseRepository = exerciseRepository,
+                            onClick = { onExerciseSelected(exercise) },
+                            enableVideoPlayback = enableVideoPlayback,
+                            onEdit = if (exercise.isCustom && onEditExercise != null) {
+                                { onEditExercise(exercise) }
+                            } else null
+                        )
+                    }
                 }
             }
         }
@@ -378,6 +545,7 @@ private fun ExerciseListItem(
     exerciseRepository: ExerciseRepository,
     onClick: () -> Unit,
     enableVideoPlayback: Boolean,
+    onEdit: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -450,7 +618,7 @@ private fun ExerciseListItem(
         },
         trailingContent = {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (exercise.timesPerformed > 0) {
@@ -467,6 +635,36 @@ private fun ExerciseListItem(
                     }
                 }
 
+                // Show "Custom" badge for custom exercises
+                if (exercise.isCustom) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = "Custom",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+
+                // Edit button for custom exercises
+                if (onEdit != null) {
+                    IconButton(
+                        onClick = onEdit,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit exercise",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
                 IconButton(
                     onClick = {
                         exercise.id?.let {
@@ -474,12 +672,14 @@ private fun ExerciseListItem(
                                 exerciseRepository.toggleFavorite(it)
                             }
                         }
-                    }
+                    },
+                    modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
                         imageVector = if (exercise.isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
                         contentDescription = if (exercise.isFavorite) "Remove from favorites" else "Add to favorites",
-                        tint = if (exercise.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (exercise.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }

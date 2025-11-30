@@ -110,6 +110,9 @@ kotlin {
 
                 // Ktor OkHttp engine for Android
                 implementation(libs.ktor.client.okhttp)
+
+                // Compose Preview Tooling (for @Preview in shared module)
+                implementation(compose.uiTooling)
             }
         }
         

@@ -12,22 +12,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.devil.phoenixproject.domain.model.WeightUnit
+import com.devil.phoenixproject.presentation.components.WeightAdjustmentControls
 import com.devil.phoenixproject.ui.theme.*
 
 /**
  * Rest Timer Card Component
  *
  * Displays during rest periods between sets/exercises in autoplay mode.
- * Shows countdown timer, next exercise info, and action buttons.
+ * Shows countdown timer, next exercise info, and editable workout parameters.
  */
 @Composable
 fun RestTimerCard(
@@ -41,11 +43,23 @@ fun RestTimerCard(
     nextExerciseMode: String? = null,
     currentExerciseIndex: Int? = null,
     totalExercises: Int? = null,
+    weightUnit: WeightUnit = WeightUnit.KG,
+    lastUsedWeight: Float? = null,
+    prWeight: Float? = null,
     formatWeight: ((Float) -> String)? = null,
+    formatWeightWithUnit: ((Float, WeightUnit) -> String)? = null,
+    isSupersetTransition: Boolean = false,
+    supersetLabel: String? = null,
     onSkipRest: () -> Unit,
     onEndWorkout: () -> Unit,
+    onUpdateReps: ((Int) -> Unit)? = null,
+    onUpdateWeight: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    // Local state for editing parameters
+    var editedReps by remember(nextExerciseReps) { mutableStateOf(nextExerciseReps ?: 10) }
+    var editedWeight by remember(nextExerciseWeight) { mutableStateOf(nextExerciseWeight ?: 20f) }
+
     // Background gradient - respects theme mode
     Box(
         modifier = modifier
@@ -80,26 +94,47 @@ fun RestTimerCard(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Spacer(modifier = Modifier.height(8.dp))
-            // REST TIME Header - Material 3 Expressive
-            Text(
-                text = "REST TIME",
-                style = MaterialTheme.typography.titleMedium, // Material 3 Expressive: Larger (was labelLarge)
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                letterSpacing = 1.5.sp
-            )
+            // REST TIME Header - shows superset info if applicable
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (isSupersetTransition && supersetLabel != null) {
+                    // Show superset badge
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = supersetLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                Text(
+                    text = if (isSupersetTransition) "QUICK REST" else "REST TIME",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSupersetTransition)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.5.sp
+                )
+            }
 
             // Countdown timer - large centered text with pulsing animation
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp),
+                    .height(180.dp),
                 contentAlignment = Alignment.Center
             ) {
                 // Circular background with pulse effect
                 Box(
                     modifier = Modifier
-                        .size(220.dp)
+                        .size(180.dp)
                         .scale(pulse)
                         .background(
                             color = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -110,91 +145,133 @@ fun RestTimerCard(
                 // Timer text
                 Text(
                     text = formatRestTime(restSecondsRemaining),
-                    style = MaterialTheme.typography.displayLarge.copy(fontSize = 80.sp),
+                    style = MaterialTheme.typography.displayLarge.copy(fontSize = 64.sp),
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.primary
                 )
             }
 
-            // UP NEXT section - Material 3 Expressive
-            Text(
-                text = "UP NEXT",
-                style = MaterialTheme.typography.titleMedium, // Material 3 Expressive: Larger (was labelMedium)
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                letterSpacing = 1.2.sp
-            )
-
-            // Next exercise name or completion message - Material 3 Expressive
-            Text(
-                text = if (isLastExercise) "Workout Complete" else nextExerciseName,
-                style = MaterialTheme.typography.headlineSmall, // Material 3 Expressive: Larger (was titleLarge)
-                fontWeight = FontWeight.Bold,
-                color = if (isLastExercise)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurface
-            )
-
-            // Set progress indicator
-            if (!isLastExercise) {
+            // UP NEXT section with exercise info
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
-                    text = "Set $currentSet of $totalSets",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "UP NEXT",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.2.sp
                 )
+
+                // Next exercise name or completion message
+                Text(
+                    text = if (isLastExercise) "Workout Complete" else nextExerciseName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isLastExercise)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                // Mode display (moved from parameters card)
+                if (!isLastExercise && nextExerciseMode != null) {
+                    Text(
+                        text = "$nextExerciseMode Mode",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Set progress indicator - FIXED: Show upcoming set (currentSet + 1)
+                if (!isLastExercise) {
+                    Text(
+                        text = "Set ${currentSet + 1} of $totalSets",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            // Workout parameters preview (if available)
+            // Editable workout parameters (if available and not last exercise)
             if (!isLastExercise && (nextExerciseWeight != null || nextExerciseReps != null)) {
                 Spacer(modifier = Modifier.height(Spacing.small))
 
-                // Parameters card - Material 3 Expressive
+                // Parameters config card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp), // Material 3 Expressive: More rounded (was 12dp)
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest), // Material 3 Expressive: Higher contrast
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp) // Material 3 Expressive: Higher elevation
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(Spacing.medium),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.small)
+                        verticalArrangement = Arrangement.spacedBy(Spacing.medium)
                     ) {
                         Text(
-                            "WORKOUT PARAMETERS",
-                            style = MaterialTheme.typography.labelLarge, // Material 3 Expressive: Larger (was labelSmall)
+                            "NEXT SET CONFIGURATION",
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 1.sp
                         )
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            if (nextExerciseWeight != null && formatWeight != null) {
-                                WorkoutParamItem(
-                                    icon = Icons.Default.Settings,
-                                    label = "Weight",
-                                    value = formatWeight(nextExerciseWeight)
-                                )
-                            }
-                            if (nextExerciseReps != null) {
-                                WorkoutParamItem(
-                                    icon = Icons.Default.Refresh,
-                                    label = "Target Reps",
-                                    value = nextExerciseReps.toString()
-                                )
-                            }
-                            if (nextExerciseMode != null) {
-                                WorkoutParamItem(
-                                    icon = Icons.Default.Settings,
-                                    label = "Mode",
-                                    value = nextExerciseMode.take(8)
-                                )
-                            }
+                        // Reps/Duration adjuster
+                        if (nextExerciseReps != null) {
+                            ParameterAdjuster(
+                                label = "Target Reps",
+                                value = editedReps,
+                                onValueChange = { newValue ->
+                                    editedReps = newValue.coerceIn(1, 50)
+                                    onUpdateReps?.invoke(editedReps)
+                                },
+                                formatValue = { it.toString() },
+                                step = 1
+                            )
+                        }
+
+                        // Enhanced Weight adjustment controls
+                        if (nextExerciseWeight != null && formatWeightWithUnit != null) {
+                            Spacer(modifier = Modifier.height(Spacing.small))
+
+                            Text(
+                                text = "Weight per cable",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            Spacer(modifier = Modifier.height(Spacing.small))
+
+                            WeightAdjustmentControls(
+                                currentWeightKg = editedWeight,
+                                weightUnit = weightUnit,
+                                formatWeight = formatWeightWithUnit,
+                                onWeightChange = { newWeight ->
+                                    editedWeight = newWeight.coerceIn(0f, 110f)
+                                    onUpdateWeight?.invoke(editedWeight)
+                                },
+                                enabled = true,
+                                showPresets = true,
+                                lastUsedWeight = lastUsedWeight,
+                                prWeight = prWeight
+                            )
+                        } else if (nextExerciseWeight != null && formatWeight != null) {
+                            // Fallback to simple adjuster if formatWeightWithUnit not provided
+                            ParameterAdjuster(
+                                label = "Weight",
+                                value = editedWeight.toInt(),
+                                onValueChange = { newValue ->
+                                    editedWeight = newValue.toFloat().coerceIn(0f, 220f)
+                                    onUpdateWeight?.invoke(editedWeight)
+                                },
+                                formatValue = { formatWeight(it.toFloat()) },
+                                step = 5
+                            )
                         }
                     }
                 }
@@ -224,7 +301,7 @@ fun RestTimerCard(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(Spacing.medium))
+            Spacer(modifier = Modifier.height(Spacing.small))
 
             // Action buttons
             Column(
@@ -233,42 +310,42 @@ fun RestTimerCard(
                     .padding(bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.small)
             ) {
-                // Skip Rest button (primary action) - Material 3 Expressive
+                // Skip Rest button (primary action)
                 Button(
                     onClick = onSkipRest,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp), // Material 3 Expressive: Taller button
+                        .height(56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
                         contentColor = MaterialTheme.colorScheme.onPrimary
                     ),
-                    shape = RoundedCornerShape(20.dp), // Material 3 Expressive: More rounded (was 16dp)
+                    shape = RoundedCornerShape(20.dp),
                     elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 4.dp, // Material 3 Expressive: Higher elevation
+                        defaultElevation = 4.dp,
                         pressedElevation = 2.dp
                     )
                 ) {
                     Icon(
                         Icons.Default.PlayArrow,
                         contentDescription = "Skip rest",
-                        modifier = Modifier.size(24.dp) // Material 3 Expressive: Larger icon (was 20dp)
+                        modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(Spacing.small))
                     Text(
                         text = if (isLastExercise) "Continue" else "Skip Rest",
-                        style = MaterialTheme.typography.titleLarge, // Material 3 Expressive: Larger (was labelLarge)
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                // End Workout button (secondary/destructive action) - Material 3 Expressive
+                // End Workout button (secondary/destructive action)
                 TextButton(
                     onClick = onEndWorkout,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp), // Material 3 Expressive: Taller button
-                    shape = RoundedCornerShape(20.dp) // Material 3 Expressive: More rounded (was 16dp)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(20.dp)
                 ) {
                     Icon(
                         Icons.Default.Close,
@@ -279,8 +356,8 @@ fun RestTimerCard(
                     Spacer(modifier = Modifier.width(Spacing.small))
                     Text(
                         text = "End Workout",
-                        style = MaterialTheme.typography.titleMedium, // Material 3 Expressive: Larger (was labelMedium)
-                        fontWeight = FontWeight.Bold, // Material 3 Expressive: Bolder
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.error
                     )
                 }
@@ -296,6 +373,76 @@ private fun formatRestTime(seconds: Int): String {
     val minutes = seconds / 60
     val remainingSeconds = seconds % 60
     return "$minutes:${remainingSeconds.toString().padStart(2, '0')}"
+}
+
+/**
+ * Reusable parameter adjuster with +/- buttons
+ */
+@Composable
+private fun ParameterAdjuster(
+    label: String,
+    value: Int,
+    onValueChange: (Int) -> Unit,
+    formatValue: (Int) -> String,
+    step: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Decrease button
+            FilledIconButton(
+                onClick = { onValueChange(value - step) },
+                modifier = Modifier.size(40.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Decrease",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            // Value display
+            Text(
+                text = formatValue(value),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.widthIn(min = 60.dp),
+                textAlign = TextAlign.Center
+            )
+
+            // Increase button
+            FilledIconButton(
+                onClick = { onValueChange(value + step) },
+                modifier = Modifier.size(40.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Increase",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable
