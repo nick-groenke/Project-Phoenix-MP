@@ -2,6 +2,7 @@ package com.devil.phoenixproject.presentation.components
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.height
@@ -75,16 +76,6 @@ fun AnimatedActionButton(
         label = "pulseScale"
     )
 
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = if (isPrimary) 0.6f else 0.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = EaseInOutSine),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowAlpha"
-    )
-
     // Secondary button shimmer
     val shimmerOffset by infiniteTransition.animateFloat(
         initialValue = -1f,
@@ -148,12 +139,6 @@ fun AnimatedActionButton(
         HomeButtonColors.SecondaryMint
     }
 
-    val border = if (isPrimary) {
-        null
-    } else {
-        BorderStroke(1.5.dp, HomeButtonColors.SecondaryTurquoise)
-    }
-
     ExtendedFloatingActionButton(
         onClick = onClick,
         containerColor = containerColor,
@@ -165,21 +150,27 @@ fun AnimatedActionButton(
             .scale(scale * pulseScale)
             .then(
                 if (!isPrimary) {
-                    Modifier.drawWithContent {
-                        drawContent()
-                        // Shimmer overlay
-                        drawRect(
-                            brush = Brush.linearGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.White.copy(alpha = 0.1f),
-                                    Color.Transparent
-                                ),
-                                start = Offset(size.width * shimmerOffset, 0f),
-                                end = Offset(size.width * (shimmerOffset + 0.5f), size.height)
-                            )
+                    Modifier
+                        .border(
+                            width = 1.5.dp,
+                            color = HomeButtonColors.SecondaryTurquoise,
+                            shape = MaterialTheme.shapes.large
                         )
-                    }
+                        .drawWithContent {
+                            drawContent()
+                            // Shimmer overlay
+                            drawRect(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.White.copy(alpha = 0.1f),
+                                        Color.Transparent
+                                    ),
+                                    start = Offset(size.width * shimmerOffset, 0f),
+                                    end = Offset(size.width * (shimmerOffset + 0.5f), size.height)
+                                )
+                            )
+                        }
                 } else {
                     Modifier
                 }
