@@ -96,7 +96,7 @@ class KableBleRepository : BleRepository {
         // Handle detection thresholds (from parent repo - proven working)
         // Position values are in mm (raw / 10.0f), so thresholds are in mm
         private const val HANDLE_GRABBED_THRESHOLD = 8.0    // Position > 8.0mm = handles grabbed
-        private const val HANDLE_REST_THRESHOLD = 5.0       // Position < 5.0mm = handles at rest
+        private const val HANDLE_REST_THRESHOLD = 2.5       // Position < 2.5mm = handles at rest (matches Nordic spec)
         // Velocity is in mm/s (calculated from mm positions)
         private const val VELOCITY_THRESHOLD = 50.0         // Velocity > 50 mm/s = significant movement (matches official concentric threshold)
 
@@ -118,7 +118,6 @@ class KableBleRepository : BleRepository {
         private const val HEARTBEAT_READ_TIMEOUT_MS = 1500L
         private const val DELOAD_EVENT_DEBOUNCE_MS = 2000L
         private const val DIAGNOSTIC_POLL_INTERVAL_MS = 500L  // Keep-alive polling (matching parent)
-        private const val HEURISTIC_POLL_INTERVAL_MS = 250L   // 4Hz phase statistics (matching parent)
 
         // Heartbeat no-op command (MUST be 4 bytes)
         private val HEARTBEAT_NO_OP = byteArrayOf(0x00, 0x00, 0x00, 0x00)
@@ -271,9 +270,6 @@ class KableBleRepository : BleRepository {
 
     // Diagnostic polling job (500ms keep-alive)
     private var diagnosticPollingJob: kotlinx.coroutines.Job? = null
-
-    // Heuristic polling job (4Hz phase statistics)
-    private var heuristicPollingJob: kotlinx.coroutines.Job? = null
 
     // Deload event debouncing
     private var lastDeloadEventTime = 0L
@@ -809,6 +805,20 @@ class KableBleRepository : BleRepository {
             }
         }
 
+        // Observe HEURISTIC characteristic for Echo mode force feedback (per Nordic spec)
+        scope.launch {
+            try {
+                log.i { "Starting HEURISTIC characteristic notifications (Echo force feedback)" }
+                p.observe(heuristicCharacteristic)
+                    .catch { e -> log.w { "Heuristic observation error (non-fatal): ${e.message}" } }
+                    .collect { data ->
+                        parseHeuristicData(data)
+                    }
+            } catch (e: Exception) {
+                log.d { "HEURISTIC notifications not available (expected): ${e.message}" }
+            }
+        }
+
         // ===== POLLING (NOT notifications - these chars are ReadableCharacteristics) =====
 
         // MONITOR characteristic - use POLLING only (NOT notifications)
@@ -820,11 +830,6 @@ class KableBleRepository : BleRepository {
         // Maintains connection and provides fault/temperature data
         log.i { "Starting DIAGNOSTIC characteristic polling (500ms keep-alive)" }
         startDiagnosticPolling(p)
-
-        // HEURISTIC characteristic - 4Hz phase statistics polling
-        // Provides concentric/eccentric statistics for UI
-        log.i { "Starting HEURISTIC characteristic polling (4Hz phase stats)" }
-        startHeuristicPolling(p)
     }
 
     /**
@@ -909,35 +914,6 @@ class KableBleRepository : BleRepository {
                 }
             }
             log.d { "📊 Diagnostic polling ended (success: $successfulReads, failed: $failedReads)" }
-        }
-    }
-
-    /**
-     * Poll HEURISTIC characteristic at 4Hz (250ms) for phase statistics.
-     * Provides concentric/eccentric statistics matching official app.
-     */
-    private fun startHeuristicPolling(p: Peripheral) {
-        heuristicPollingJob?.cancel()
-        heuristicPollingJob = scope.launch {
-            log.d { "🔄 Starting SEQUENTIAL heuristic polling (${HEURISTIC_POLL_INTERVAL_MS}ms interval / 4Hz - matches official app)" }
-
-            while (_connectionState.value is ConnectionState.Connected && isActive) {
-                try {
-                    val data = withTimeoutOrNull(HEARTBEAT_READ_TIMEOUT_MS) {
-                        p.read(heuristicCharacteristic)
-                    }
-
-                    if (data != null) {
-                        parseHeuristicData(data)
-                    }
-
-                    // Poll every 250ms (4Hz) - matching official app
-                    delay(HEURISTIC_POLL_INTERVAL_MS)
-                } catch (e: Exception) {
-                    log.v { "Heuristic poll error (non-fatal): ${e.message}" }
-                    delay(HEURISTIC_POLL_INTERVAL_MS)
-                }
-            }
         }
     }
 
@@ -1111,8 +1087,6 @@ class KableBleRepository : BleRepository {
         monitorPollingJob = null
         diagnosticPollingJob?.cancel()
         diagnosticPollingJob = null
-        heuristicPollingJob?.cancel()
-        heuristicPollingJob = null
 
         // Clear cached workout command characteristic (will rediscover on next connect)
         workingWorkoutCmdCharacteristic = null
@@ -1316,12 +1290,10 @@ class KableBleRepository : BleRepository {
 
         monitorPollingJob?.cancel()
         diagnosticPollingJob?.cancel()
-        heuristicPollingJob?.cancel()
         heartbeatJob?.cancel()
 
         monitorPollingJob = null
         diagnosticPollingJob = null
-        heuristicPollingJob = null
         heartbeatJob = null
 
         val afterCancel = currentTimeMillis()
