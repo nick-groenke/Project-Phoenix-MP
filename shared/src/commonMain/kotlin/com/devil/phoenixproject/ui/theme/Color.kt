@@ -9,8 +9,13 @@ import androidx.compose.ui.graphics.Color
 
 // --- CORE BRAND COLORS ---
 // Primary: "Phoenix Flame" - Used for FABs, Main Actions, Active States
-val PhoenixOrangeLight = Color(0xFFD94600)  // Deep energetic orange (light mode)
-val PhoenixOrangeDark = Color(0xFFFFB590)   // Soft peach-orange (dark mode)
+val PhoenixOrangeLight = Color(0xFFE65100)  // Deep energetic orange (light mode)
+val PhoenixOrangeDark = Color(0xFFFF9149)   // Vibrant orange (dark mode) - was too pink/salmon
+
+// Fire gradient colors for Just Lift button
+val FlameOrange = Color(0xFFFF6B00)   // Core flame orange
+val FlameYellow = Color(0xFFFFAB00)   // Inner flame yellow
+val FlameRed = Color(0xFFE64A19)      // Outer flame red-orange
 
 // Secondary: "Ember Gold" - Used for Secondary Actions, Toggles
 val EmberYellowLight = Color(0xFF6A5F00)    // Olive gold (light mode)

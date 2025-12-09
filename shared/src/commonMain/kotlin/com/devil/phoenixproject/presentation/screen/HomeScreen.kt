@@ -203,7 +203,8 @@ fun HomeScreen(
                             }
                         },
                         isPrimary = true,
-                        iconAnimation = IconAnimation.PULSE
+                        isFireButton = true,  // Fire animation effect
+                        iconAnimation = IconAnimation.FIRE
                     )
                 }
             }

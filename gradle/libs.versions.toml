@@ -39,6 +39,9 @@ kermit = "2.0.5"
 coil = "3.0.4"
 reorderable = "2.4.3"
 
+# Shader Effects
+hypnotic-canvas = "0.4.1"
+
 # Testing
 junit = "4.13.2"
 junit-version = "1.2.1"
@@ -108,6 +111,9 @@ ktor-client-core = { module = "io.ktor:ktor-client-core", version = "3.1.1" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version = "3.1.1" }
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version = "3.1.1" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
+
+# Shader Effects (Multiplatform)
+hypnotic-canvas = { module = "com.mikepenz.hypnoticcanvas:hypnoticcanvas", version.ref = "hypnotic-canvas" }
 
 # Testing
 junit = { module = "junit:junit", version.ref = "junit" }
