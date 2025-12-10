@@ -846,6 +846,10 @@ fun ConnectionCard(
 
 /**
  * Rep Counter Card - displays current rep count
+ *
+ * Visual feedback flow (matches parent repo):
+ * - hasPendingRep: At TOP (concentric peak) - show next rep number in grey
+ * - !hasPendingRep: At BOTTOM (confirmed) - show current rep in full color
  */
 @Composable
 fun RepCounterCard(repCount: RepCount, workoutParameters: WorkoutParameters) {
@@ -862,11 +866,15 @@ fun RepCounterCard(repCount: RepCount, workoutParameters: WorkoutParameters) {
                 .padding(Spacing.large),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Determine display values for working reps
+            // Determine display values for working reps:
+            // - hasPendingRep: At TOP (concentric peak) - show next rep number in grey
+            // - !hasPendingRep: At BOTTOM (confirmed) - show current rep in full color
             val (countText, isPending) = if (repCount.isWarmupComplete) {
                 if (repCount.hasPendingRep) {
+                    // At TOP - show PENDING rep (next number, will be confirmed at bottom)
                     Pair((repCount.workingReps + 1).toString(), true)
                 } else {
+                    // At BOTTOM or idle - show CONFIRMED rep count
                     Pair(repCount.workingReps.toString(), false)
                 }
             } else {
@@ -903,14 +911,16 @@ fun RepCounterCard(repCount: RepCount, workoutParameters: WorkoutParameters) {
             )
             Spacer(modifier = Modifier.height(Spacing.medium))
 
-            // Rep count display with pending state
+            // Rep count display with pending state (grey when at TOP, colored when confirmed)
             Text(
                 text = countText,
                 style = MaterialTheme.typography.displayLarge,
                 fontWeight = FontWeight.Bold,
                 color = if (isPending) {
+                    // Grey color for pending rep (at TOP, waiting for eccentric)
                     MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.4f)
                 } else {
+                    // Full color for confirmed rep (at BOTTOM, completed)
                     MaterialTheme.colorScheme.onPrimaryContainer
                 }
             )

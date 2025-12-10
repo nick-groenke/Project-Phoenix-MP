@@ -662,6 +662,15 @@ class MainViewModel constructor(
             _workoutState.value = WorkoutState.Active
             workoutStartTime = currentTimeMillis()
             _hapticEvents.emit(HapticEvent.WORKOUT_START)
+
+            // Set initial baseline position for position bars calibration
+            // This ensures bars start at 0% relative to the starting rope position
+            _currentMetric.value?.let { metric ->
+                repCounter.setInitialBaseline(metric.positionA, metric.positionB)
+                _repRanges.value = repCounter.getRepRanges()
+                Logger.d("MainViewModel") { "POSITION BASELINE: Set initial baseline posA=${metric.positionA}, posB=${metric.positionB}" }
+            }
+
             monitorWorkout(isJustLiftMode)
         }
     }
@@ -678,13 +687,16 @@ class MainViewModel constructor(
                      posA = metric.positionA,
                      posB = metric.positionB
                  )
-                 
+
                  _repCount.value = repCounter.getRepCount()
 
                  // Update position ranges continuously for Just Lift mode
                  if (isJustLift) {
                      repCounter.updatePositionRangesContinuously(metric.positionA, metric.positionB)
                  }
+
+                 // Update rep ranges for position bar ROM visualization
+                 _repRanges.value = repCounter.getRepRanges()
 
                  // Just Lift Auto-Stop (danger zone detection)
                  // Note: AMRAP mode explicitly disables auto-stop
@@ -860,6 +872,7 @@ class MainViewModel constructor(
     fun resetForNewWorkout() {
         _workoutState.value = WorkoutState.Idle
         _repCount.value = RepCount()
+        _repRanges.value = null  // Clear ROM calibration for new workout
     }
 
     fun advanceToNextExercise() {

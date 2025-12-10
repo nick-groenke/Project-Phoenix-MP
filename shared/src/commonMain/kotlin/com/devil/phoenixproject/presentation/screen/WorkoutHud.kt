@@ -278,20 +278,32 @@ private fun ExecutionPage(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Giant Rep Counter
+        // Giant Rep Counter (matches parent repo style)
         Text(
             if (repCount.isWarmupComplete) "REP" else "WARMUP",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             letterSpacing = 2.sp
         )
+
+        // Rep count display with pending state (grey when at TOP, colored when confirmed)
+        val countText = if (repCount.isWarmupComplete) {
+            if (repCount.hasPendingRep) {
+                (repCount.workingReps + 1).toString()
+            } else {
+                repCount.workingReps.toString()
+            }
+        } else {
+            "${repCount.warmupReps} / ${workoutParameters.warmupReps}"
+        }
+
         Text(
-            text = "${repCount.workingReps}",
+            text = countText,
             style = MaterialTheme.typography.displayLarge.copy(fontSize = 120.sp),
             fontWeight = FontWeight.Black,
-            color = if (repCount.hasPendingRep) 
-                MaterialTheme.colorScheme.onSurface 
-            else 
+            color = if (repCount.hasPendingRep)
+                MaterialTheme.colorScheme.onSurface
+            else
                 MaterialTheme.colorScheme.primary
         )
 
@@ -299,23 +311,19 @@ private fun ExecutionPage(
 
         // Circular Force Gauge
         if (metric != null) {
-            val totalLoad = metric.loadA + metric.loadB // Metric load is usually per cable
-            // Max force for gauge scaling - this should ideally be dynamic or based on user's max
-            // For now, let's assume 50kg per cable is a decent range, so 100kg total
-            // Or use the weight setting + 20%
-            val targetWeight = workoutParameters.weightPerCableKg * 2 // Total target
-            val gaugeMax = (targetWeight * 1.5f).coerceAtLeast(40f) // Dynamic scale
+            val totalLoad = metric.loadA + metric.loadB
+            val targetWeight = workoutParameters.weightPerCableKg * 2
+            val gaugeMax = (targetWeight * 1.5f).coerceAtLeast(40f)
 
             CircularForceGauge(
                 currentForce = totalLoad,
                 maxForce = gaugeMax,
-                velocity = (metric.velocityA + metric.velocityB) / 2.0, // Avg velocity
+                velocity = (metric.velocityA + metric.velocityB) / 2.0,
                 label = formatWeight(totalLoad, weightUnit),
                 subLabel = "TOTAL LOAD",
                 modifier = Modifier.size(200.dp)
             )
         } else {
-            // Placeholder if no metric
             Text("Waiting for data...", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
