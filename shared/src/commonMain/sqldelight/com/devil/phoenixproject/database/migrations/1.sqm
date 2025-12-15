@@ -1,0 +1,2 @@
+-- Migration: Add one_rep_max_kg to Exercise table
+ALTER TABLE Exercise ADD COLUMN one_rep_max_kg REAL DEFAULT NULL;

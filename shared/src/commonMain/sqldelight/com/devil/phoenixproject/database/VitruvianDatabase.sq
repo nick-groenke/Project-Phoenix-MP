@@ -23,7 +23,8 @@ CREATE TABLE Exercise (
     timesPerformed INTEGER NOT NULL DEFAULT 0,
     lastPerformed INTEGER,
     aliases TEXT,
-    defaultCableConfig TEXT NOT NULL
+    defaultCableConfig TEXT NOT NULL,
+    one_rep_max_kg REAL DEFAULT NULL
 );
 
 CREATE INDEX idx_exercise_popularity ON Exercise(popularity DESC, name ASC);
@@ -238,9 +239,9 @@ INSERT OR REPLACE INTO Exercise (
     id, name, description, created, muscleGroup, muscleGroups, muscles,
     equipment, movement, sidedness, grip, gripWidth, minRepRange,
     popularity, archived, isFavorite, isCustom, timesPerformed, lastPerformed,
-    aliases, defaultCableConfig
+    aliases, defaultCableConfig, one_rep_max_kg
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 countExercises:
 SELECT COUNT(*) FROM Exercise;
@@ -277,7 +278,7 @@ updateCustomExercise:
 UPDATE Exercise
 SET name = ?, description = ?, muscleGroup = ?, muscleGroups = ?, muscles = ?,
     equipment = ?, movement = ?, sidedness = ?, grip = ?, gripWidth = ?,
-    minRepRange = ?, aliases = ?, defaultCableConfig = ?
+    minRepRange = ?, aliases = ?, defaultCableConfig = ?, one_rep_max_kg = ?
 WHERE id = ? AND isCustom = 1;
 
 deleteCustomExercise:
@@ -876,3 +877,10 @@ UPDATE ProgressionEvent SET user_response = ?, actual_weight_kg = ? WHERE id = ?
 
 deleteProgressionEvent:
 DELETE FROM ProgressionEvent WHERE id = ?;
+
+-- Exercise 1RM Queries
+updateOneRepMax:
+UPDATE Exercise SET one_rep_max_kg = ? WHERE id = ?;
+
+getExercisesWithOneRepMax:
+SELECT * FROM Exercise WHERE one_rep_max_kg IS NOT NULL;
