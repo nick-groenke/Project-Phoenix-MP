@@ -79,6 +79,7 @@ fun OneRepMaxInputScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .padding(Spacing.medium),
                     verticalArrangement = Arrangement.spacedBy(Spacing.small)
                 ) {

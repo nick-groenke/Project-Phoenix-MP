@@ -50,8 +50,8 @@ private val DarkColorScheme = darkColorScheme(
     error = SignalError,
     onError = Color.White,
 
-    outline = Slate700,
-    outlineVariant = Slate400
+    outline = Slate400,
+    outlineVariant = Slate700
 )
 
 private val LightColorScheme = lightColorScheme(

@@ -74,6 +74,7 @@ fun ModeConfirmationScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .navigationBarsPadding()
                         .padding(Spacing.medium),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.small)
                 ) {
