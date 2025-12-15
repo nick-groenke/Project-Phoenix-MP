@@ -289,4 +289,24 @@ class SqlDelightExerciseRepository(
             }
         }
     }
+
+    // ========== One Rep Max Management ==========
+
+    override suspend fun updateOneRepMax(exerciseId: String, oneRepMaxKg: Float?) {
+        withContext(Dispatchers.IO) {
+            queries.updateOneRepMax(oneRepMaxKg?.toDouble(), exerciseId)
+        }
+    }
+
+    override fun getExercisesWithOneRepMax(): Flow<List<Exercise>> {
+        return queries.getExercisesWithOneRepMax(::mapToExercise)
+            .asFlow()
+            .mapToList(Dispatchers.IO)
+    }
+
+    override suspend fun findByName(name: String): Exercise? {
+        return withContext(Dispatchers.IO) {
+            queries.findExerciseByName(name, ::mapToExercise).executeAsOneOrNull()
+        }
+    }
 }

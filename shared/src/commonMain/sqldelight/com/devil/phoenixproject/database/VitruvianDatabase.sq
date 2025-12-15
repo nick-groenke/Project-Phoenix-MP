@@ -884,3 +884,6 @@ UPDATE Exercise SET one_rep_max_kg = ? WHERE id = ?;
 
 getExercisesWithOneRepMax:
 SELECT * FROM Exercise WHERE one_rep_max_kg IS NOT NULL;
+
+findExerciseByName:
+SELECT * FROM Exercise WHERE name = ? LIMIT 1;
