@@ -70,13 +70,6 @@ fun HomeScreen(
         }
     }
 
-    // Determine context for "Start Workout" button
-    val nextRoutineId = remember(activeCycle, cycleProgress, routines) {
-        if (activeCycle != null && cycleProgress != null) {
-            val day = activeCycle!!.days.find { it.dayNumber == cycleProgress!!.currentDayNumber }
-            day?.routineId
-        } else null
-    }
 
     // Determine actual theme for custom coloring
     val isDark = when (themeMode) {
@@ -139,17 +132,16 @@ fun HomeScreen(
 
                 // Spacer for FABs clearance
                 item(key = "fab-spacer") {
-                    Spacer(modifier = Modifier.height(160.dp))
+                    Spacer(modifier = Modifier.height(180.dp))
                 }
             }
 
-            // Bottom FAB Grid: 2 columns, equal width
+            // Bottom FAB Grid: 2 columns, equal width - positioned directly above the navbar
             Row(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 12.dp)
-                    .navigationBarsPadding(),
+                    .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 // Left column: Cycles & Routines
@@ -186,25 +178,14 @@ fun HomeScreen(
                         iconAnimation = IconAnimation.TILT
                     )
                     AnimatedActionButton(
-                        label = if (activeCycle != null) "Start Session" else "Just Lift",
-                        icon = Icons.Default.PlayArrow,
+                        label = "Just Lift",
+                        icon = null,
                         onClick = {
-                            if (nextRoutineId != null) {
-                                viewModel.ensureConnection(
-                                    onConnected = {
-                                        viewModel.loadRoutineById(nextRoutineId)
-                                        viewModel.startWorkout()
-                                        navController.navigate(NavigationRoutes.ActiveWorkout.route)
-                                    },
-                                    onFailed = { /* Error handled by state */ }
-                                )
-                            } else {
-                                navController.navigate(NavigationRoutes.JustLift.route)
-                            }
+                            navController.navigate(NavigationRoutes.JustLift.route)
                         },
                         isPrimary = true,
                         isFireButton = true,  // Fire animation effect
-                        iconAnimation = IconAnimation.FIRE
+                        iconAnimation = IconAnimation.NONE
                     )
                 }
             }

@@ -155,7 +155,7 @@ private fun Modifier.onFire(): Modifier = composed {
 @Composable
 fun AnimatedActionButton(
     label: String,
-    icon: ImageVector,
+    icon: ImageVector?,
     onClick: () -> Unit,
     isPrimary: Boolean,
     isFireButton: Boolean = false,
@@ -254,7 +254,7 @@ fun AnimatedActionButton(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(52.dp)
+                .height(64.dp)
                 .scale(scale * pulseScale)
                 .clip(RoundedCornerShape(28.dp))
                 .onFire()
@@ -275,15 +275,17 @@ fun AnimatedActionButton(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            modifier = iconModifier.then(Modifier.size(32.dp)),
-                            tint = Color.White
-                        )
-                        androidx.compose.foundation.layout.Spacer(
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        )
+                        if (icon != null) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = iconModifier.then(Modifier.size(32.dp)),
+                                tint = Color.White
+                            )
+                            androidx.compose.foundation.layout.Spacer(
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            )
+                        }
                         Text(
                             text = label,
                             color = Color.White,
@@ -295,23 +297,37 @@ fun AnimatedActionButton(
         }
     } else {
         // Standard button
-        ExtendedFloatingActionButton(
-            onClick = onClick,
-            containerColor = containerColor,
-            contentColor = contentColor,
-            interactionSource = interactionSource,
-            modifier = modifier
-                .fillMaxWidth()
-                .height(52.dp)
-                .scale(scale * pulseScale),
-            icon = {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = iconModifier
-                )
-            },
-            text = { Text(label) }
-        )
+        if (icon != null) {
+            ExtendedFloatingActionButton(
+                onClick = onClick,
+                containerColor = containerColor,
+                contentColor = contentColor,
+                interactionSource = interactionSource,
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .scale(scale * pulseScale),
+                icon = {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = iconModifier.then(Modifier.size(28.dp))
+                    )
+                },
+                text = { Text(label, style = MaterialTheme.typography.titleMedium) }
+            )
+        } else {
+            ExtendedFloatingActionButton(
+                onClick = onClick,
+                containerColor = containerColor,
+                contentColor = contentColor,
+                interactionSource = interactionSource,
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .scale(scale * pulseScale),
+                content = { Text(label, style = MaterialTheme.typography.titleMedium) }
+            )
+        }
     }
 }
