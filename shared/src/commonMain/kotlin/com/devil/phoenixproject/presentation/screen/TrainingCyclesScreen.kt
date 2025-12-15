@@ -27,12 +27,15 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.data.migration.CycleTemplates
+import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.data.repository.TrainingCycleRepository
 import com.devil.phoenixproject.domain.model.CycleDay
 import com.devil.phoenixproject.domain.model.CycleProgress
 import com.devil.phoenixproject.domain.model.CycleTemplate
+import com.devil.phoenixproject.domain.model.ProgramMode
 import com.devil.phoenixproject.domain.model.Routine
 import com.devil.phoenixproject.domain.model.TrainingCycle
+import com.devil.phoenixproject.domain.usecase.TemplateConverter
 import com.devil.phoenixproject.presentation.components.EmptyState
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
 import com.devil.phoenixproject.ui.theme.Spacing
@@ -41,6 +44,20 @@ import kotlinx.coroutines.launch
 import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import org.koin.compose.koinInject
 import com.devil.phoenixproject.ui.theme.screenBackgroundBrush
+
+/**
+ * State machine for cycle creation flow
+ */
+sealed class CycleCreationState {
+    object Idle : CycleCreationState()
+    data class TemplateSelected(val template: CycleTemplate) : CycleCreationState()
+    data class OneRepMaxInput(val template: CycleTemplate) : CycleCreationState()
+    data class ModeConfirmation(
+        val template: CycleTemplate,
+        val oneRepMaxValues: Map<String, Float>
+    ) : CycleCreationState()
+    data class Creating(val template: CycleTemplate) : CycleCreationState()
+}
 
 /**
  * Training Cycles screen - view and manage rolling workout schedules.
@@ -53,6 +70,8 @@ fun TrainingCyclesScreen(
     themeMode: ThemeMode
 ) {
     val cycleRepository: TrainingCycleRepository = koinInject()
+    val exerciseRepository: ExerciseRepository = koinInject()
+    val templateConverter: TemplateConverter = koinInject()
     val scope = rememberCoroutineScope()
 
     // Collect cycles from repository
@@ -64,6 +83,7 @@ fun TrainingCyclesScreen(
     var showTemplateDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf<TrainingCycle?>(null) }
     var cycleProgress by remember { mutableStateOf<Map<String, CycleProgress>>(emptyMap()) }
+    var creationState by remember { mutableStateOf<CycleCreationState>(CycleCreationState.Idle) }
 
     // Load progress for all cycles
     LaunchedEffect(cycles) {
@@ -192,22 +212,119 @@ fun TrainingCyclesScreen(
         }
     }
 
-    // Template Selection Dialog - Removed for now as we go straight to editor via FAB, 
-    // or we can redirect "Create Blank" to editor.
-    // Keeping logic if user wants templates later, but for now FAB goes to editor.
+    // Template Selection Dialog
     if (showTemplateDialog) {
         TemplateSelectionDialog(
-            onDismiss = { showTemplateDialog = false },
-            onSelectTemplate = { template ->
-                // TODO: Task 11 - Convert CycleTemplate to TrainingCycle using TemplateConverter
-                // For now, this is disabled until TemplateConverter is implemented
+            onDismiss = {
                 showTemplateDialog = false
+                creationState = CycleCreationState.Idle
+            },
+            onSelectTemplate = { template ->
+                showTemplateDialog = false
+                // Check if template needs 1RM input (5/3/1 template)
+                val needsOneRepMax = template.name.contains("5/3/1", ignoreCase = true) ||
+                    template.days.any { day ->
+                        day.routine?.exercises?.any { it.isPercentageBased } == true
+                    }
+
+                if (needsOneRepMax) {
+                    creationState = CycleCreationState.OneRepMaxInput(template)
+                } else {
+                    creationState = CycleCreationState.ModeConfirmation(template, emptyMap())
+                }
             },
             onCreateBlank = {
                 showTemplateDialog = false
+                creationState = CycleCreationState.Idle
                 navController.navigate(NavigationRoutes.CycleEditor.createRoute("new"))
             }
         )
+    }
+
+    // OneRepMaxInputScreen
+    when (val state = creationState) {
+        is CycleCreationState.OneRepMaxInput -> {
+            // Extract main lift names from template exercises
+            val mainLiftNames = state.template.days
+                .flatMap { it.routine?.exercises ?: emptyList() }
+                .filter { it.isPercentageBased }
+                .map { it.exerciseName }
+                .distinct()
+
+            // Load existing 1RM values
+            val existingOneRepMaxValues = remember { mutableStateMapOf<String, Float>() }
+            LaunchedEffect(mainLiftNames) {
+                mainLiftNames.forEach { exerciseName ->
+                    exerciseRepository.findByName(exerciseName)?.let { exercise ->
+                        exercise.oneRepMaxKg?.let { oneRepMax ->
+                            existingOneRepMaxValues[exerciseName] = oneRepMax
+                        }
+                    }
+                }
+            }
+
+            OneRepMaxInputScreen(
+                mainLiftNames = mainLiftNames,
+                existingOneRepMaxValues = existingOneRepMaxValues,
+                onConfirm = { oneRepMaxValues ->
+                    creationState = CycleCreationState.ModeConfirmation(state.template, oneRepMaxValues)
+                },
+                onCancel = {
+                    creationState = CycleCreationState.Idle
+                }
+            )
+        }
+        is CycleCreationState.ModeConfirmation -> {
+            ModeConfirmationScreen(
+                template = state.template,
+                onConfirm = { modeSelections ->
+                    creationState = CycleCreationState.Creating(state.template)
+                    scope.launch {
+                        try {
+                            // 1. Update 1RM values in exercise repository if provided
+                            state.oneRepMaxValues.forEach { (exerciseName, oneRepMax) ->
+                                if (oneRepMax > 0f) {
+                                    exerciseRepository.findByName(exerciseName)?.let { exercise ->
+                                        exerciseRepository.updateOneRepMax(exercise.id ?: "", oneRepMax)
+                                    }
+                                }
+                            }
+
+                            // 2. Convert template using TemplateConverter
+                            val conversionResult = templateConverter.convert(state.template)
+
+                            // 3. Save cycle via TrainingCycleRepository
+                            cycleRepository.saveCycle(conversionResult.cycle)
+
+                            // 4. Save routines via viewModel
+                            conversionResult.routines.forEach { routine ->
+                                viewModel.saveRoutine(routine)
+                            }
+
+                            // 5. Show warnings if any exercises weren't found
+                            if (conversionResult.warnings.isNotEmpty()) {
+                                Logger.w { "Some exercises not found: ${conversionResult.warnings}" }
+                                // TODO: Could show a dialog with warnings here
+                            }
+
+                            // 6. Navigate back or reset state
+                            creationState = CycleCreationState.Idle
+                            Logger.d { "Successfully created cycle: ${state.template.name}" }
+                        } catch (e: Exception) {
+                            Logger.e(e) { "Failed to create cycle from template" }
+                            creationState = CycleCreationState.Idle
+                            // TODO: Show error to user
+                        }
+                    }
+                },
+                onCancel = {
+                    creationState = CycleCreationState.Idle
+                }
+            )
+        }
+        else -> {
+            // Idle or Creating state - don't show anything
+        }
     }
 
     // Delete Confirmation Dialog
@@ -609,7 +726,14 @@ private fun TemplateSelectionDialog(
     onSelectTemplate: (CycleTemplate) -> Unit,
     onCreateBlank: () -> Unit
 ) {
-    val templates = remember { CycleTemplates.all() }
+    val templates = remember {
+        listOf(
+            CycleTemplates.threeDay(),
+            CycleTemplates.pushPullLegs(),
+            CycleTemplates.upperLower(),
+            CycleTemplates.fiveThreeOne()
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -631,6 +755,11 @@ private fun TemplateSelectionDialog(
                 )
 
                 templates.forEach { template ->
+                    val needsOneRepMax = template.name.contains("5/3/1", ignoreCase = true) ||
+                        template.days.any { day ->
+                            day.routine?.exercises?.any { it.isPercentageBased } == true
+                        }
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -648,15 +777,40 @@ private fun TemplateSelectionDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        template.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (needsOneRepMax) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                "1RM",
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(4.dp))
                                 Text(
-                                    template.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
+                                    template.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
                                     "${template.days.size} days",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                             Icon(
