@@ -505,6 +505,19 @@ class MainViewModel constructor(
                 }
             }
         }
+
+        // CRITICAL: Global metricsFlow collection (matches parent repo)
+        // This runs continuously regardless of workout state, enabling:
+        // - Position tracking during handle detection phase (before workout starts)
+        // - Position bars to update immediately when connected
+        // - Continuous position range calibration for auto-stop detection
+        monitorDataCollectionJob = viewModelScope.launch {
+            Logger.d("MainViewModel") { "Starting global metricsFlow collection..." }
+            bleRepository.metricsFlow.collect { metric ->
+                _currentMetric.value = metric
+                handleMonitorMetric(metric)
+            }
+        }
     }
 
     /**
@@ -528,6 +541,65 @@ class MainViewModel constructor(
         // Update rep count and ranges for UI
         _repCount.value = repCounter.getRepCount()
         _repRanges.value = repCounter.getRepRanges()
+    }
+
+    /**
+     * Handle monitor metric data (matches parent repo logic).
+     *
+     * This is called on every metric from the machine, regardless of workout state.
+     * It handles:
+     * - Pre-workout position tracking (during handle detection phase)
+     * - Active workout position tracking for Just Lift and AMRAP modes
+     * - Auto-stop detection for Just Lift and AMRAP modes
+     */
+    private fun handleMonitorMetric(metric: WorkoutMetric) {
+        val params = _workoutParameters.value
+        val state = _workoutState.value
+
+        // CRITICAL: Track positions during handle detection phase (before workout starts)
+        // This builds up min/max ranges for hasMeaningfulRange() auto-stop detection
+        // useAutoStart is true when in Just Lift mode and waiting for handles
+        if (params.useAutoStart && state is WorkoutState.Idle) {
+            repCounter.updatePositionRangesContinuously(metric.positionA, metric.positionB)
+            _repRanges.value = repCounter.getRepRanges()
+        }
+
+        if (state is WorkoutState.Active) {
+            // Collect metrics for history (moved from monitorWorkout)
+            collectMetricForHistory(metric)
+
+            // CRITICAL: In Just Lift/AMRAP modes, we must track positions continuously
+            // because no rep events fire to establish min/max ranges.
+            // This enables hasMeaningfulRange() to return true for auto-stop detection.
+            if (params.isJustLift || params.isAMRAP) {
+                repCounter.updatePositionRangesContinuously(metric.positionA, metric.positionB)
+            }
+
+            // Update rep ranges for position bar ROM visualization
+            _repRanges.value = repCounter.getRepRanges()
+
+            // Just Lift / AMRAP Auto-Stop (stall detection)
+            // Stall detection is now toggleable via stallDetectionEnabled flag
+            if ((params.isJustLift || params.isAMRAP) && params.stallDetectionEnabled) {
+                checkAutoStop(metric)
+            } else {
+                resetAutoStopTimer()
+            }
+
+            // Standard Auto-Stop (rep target reached)
+            if (repCounter.shouldStopWorkout()) {
+                stopWorkout()
+            }
+        } else {
+            resetAutoStopTimer()
+        }
+    }
+
+    /**
+     * Collect metric for history recording.
+     */
+    private fun collectMetricForHistory(metric: WorkoutMetric) {
+        collectedMetrics.add(metric)
     }
 
     fun startScanning() {
@@ -713,52 +785,17 @@ class MainViewModel constructor(
                 Logger.d("MainViewModel") { "POSITION BASELINE: Set initial baseline posA=${metric.positionA}, posB=${metric.positionB}" }
             }
 
-            monitorWorkout(isJustLiftMode)
-        }
-    }
-
-    private fun monitorWorkout(isJustLift: Boolean) {
-        monitorDataCollectionJob?.cancel()
-        monitorDataCollectionJob = viewModelScope.launch {
-             bleRepository.metricsFlow.collect { metric ->
-                 _currentMetric.value = metric
-                 
-                 repCounter.process(
-                     repsRomCount = 0, // TODO: Extract from packet
-                     repsSetCount = 0, // TODO: Extract from packet
-                     posA = metric.positionA,
-                     posB = metric.positionB
-                 )
-
-                 _repCount.value = repCounter.getRepCount()
-
-                 // Update position ranges continuously for Just Lift mode
-                 if (isJustLift) {
-                     repCounter.updatePositionRangesContinuously(metric.positionA, metric.positionB)
-                 }
-
-                 // Update rep ranges for position bar ROM visualization
-                 _repRanges.value = repCounter.getRepRanges()
-
-                 // Just Lift / AMRAP Auto-Stop (stall detection)
-                 // Stall detection is now toggleable via stallDetectionEnabled flag
-                 val params = _workoutParameters.value
-                 if ((params.isJustLift || params.isAMRAP) && params.stallDetectionEnabled) {
-                     checkAutoStop(metric)
-                 }
-
-                 // Standard Auto-Stop (rep target reached)
-                 if (repCounter.shouldStopWorkout()) {
-                     stopWorkout()
-                 }
-             }
+            // Note: Metric collection is handled globally in init via handleMonitorMetric()
+            // No need for separate monitorWorkout() - this ensures consistent position tracking
+            // before, during, and after workouts (matching parent repo behavior)
         }
     }
 
     fun stopWorkout() {
         viewModelScope.launch {
              bleRepository.sendWorkoutCommand(BlePacketFactory.createStopCommand())
-             monitorDataCollectionJob?.cancel()
+             // Note: Don't cancel monitorDataCollectionJob here - it's global and should
+             // continue running to track positions for the next workout (matching parent repo)
              _hapticEvents.emit(HapticEvent.WORKOUT_END)
 
              val params = _workoutParameters.value
