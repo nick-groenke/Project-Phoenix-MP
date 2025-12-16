@@ -224,7 +224,8 @@ data class WorkoutParameters(
     val selectedExerciseId: String? = null,
     val isAMRAP: Boolean = false,  // AMRAP (As Many Reps As Possible) - disables auto-stop
     val lastUsedWeightKg: Float? = null,  // Last used weight for this exercise (for quick preset)
-    val prWeightKg: Float? = null  // Personal record weight for this exercise (for quick preset)
+    val prWeightKg: Float? = null,  // Personal record weight for this exercise (for quick preset)
+    val stallDetectionEnabled: Boolean = true  // Enable stall detection auto-stop for Just Lift/AMRAP modes
 )
 
 /**

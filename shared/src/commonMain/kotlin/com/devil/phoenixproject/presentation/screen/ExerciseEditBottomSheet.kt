@@ -108,6 +108,7 @@ fun ExerciseEditBottomSheet(
     val perSetRestTime by viewModel.perSetRestTime.collectAsState()
     val eccentricLoad by viewModel.eccentricLoad.collectAsState()
     val echoLevel by viewModel.echoLevel.collectAsState()
+    val stallDetectionEnabled by viewModel.stallDetectionEnabled.collectAsState()
 
     // Fetch current PR for selected mode
     var currentPR by remember { mutableStateOf<PersonalRecord?>(null) }
@@ -391,6 +392,44 @@ fun ExerciseEditBottomSheet(
                             checked = perSetRestTime,
                             onCheckedChange = viewModel::onPerSetRestTimeChange
                         )
+                    }
+                }
+
+                // Stall Detection toggle - show when any set is AMRAP
+                val hasAMRAPSets = sets.any { it.reps == null }
+                if (hasAMRAPSets) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.surfaceVariant),
+                        shadowElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(Spacing.small),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Stall Detection",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (stallDetectionEnabled) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (stallDetectionEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Auto-stop set when movement pauses for 5 seconds",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = stallDetectionEnabled,
+                                onCheckedChange = viewModel::onStallDetectionEnabledChange
+                            )
+                        }
                     }
                 }
 

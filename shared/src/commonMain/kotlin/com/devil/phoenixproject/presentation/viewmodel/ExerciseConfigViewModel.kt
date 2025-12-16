@@ -75,6 +75,9 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
     private val _echoLevel = MutableStateFlow(EchoLevel.HARDER)
     val echoLevel: StateFlow<EchoLevel> = _echoLevel.asStateFlow()
 
+    private val _stallDetectionEnabled = MutableStateFlow(true)
+    val stallDetectionEnabled: StateFlow<Boolean> = _stallDetectionEnabled.asStateFlow()
+
     init {
 
     }
@@ -166,6 +169,7 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
         _perSetRestTime.value = exercise.perSetRestTime
         _eccentricLoad.value = exercise.eccentricLoad
         _echoLevel.value = exercise.echoLevel
+        _stallDetectionEnabled.value = exercise.stallDetectionEnabled
 
         _initialized.value = true
     }
@@ -211,6 +215,10 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
         if (current is WorkoutMode.Echo) {
             _selectedMode.value = WorkoutMode.Echo(level)
         }
+    }
+
+    fun onStallDetectionEnabledChange(enabled: Boolean) {
+        _stallDetectionEnabled.value = enabled
     }
 
     fun updateReps(setId: String, reps: Int?) {
@@ -297,7 +305,8 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
                 _sets.value.firstOrNull()?.duration ?: 30 // Default to 30 seconds if not set
             } else null,
             perSetRestTime = _perSetRestTime.value,
-            isAMRAP = isAMRAP
+            isAMRAP = isAMRAP,
+            stallDetectionEnabled = _stallDetectionEnabled.value
         )
 
         logDebug("Updated exercise to save:")

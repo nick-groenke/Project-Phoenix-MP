@@ -740,10 +740,10 @@ class MainViewModel constructor(
                  // Update rep ranges for position bar ROM visualization
                  _repRanges.value = repCounter.getRepRanges()
 
-                 // Just Lift Auto-Stop (danger zone detection)
-                 // Note: AMRAP mode explicitly disables auto-stop
+                 // Just Lift / AMRAP Auto-Stop (stall detection)
+                 // Stall detection is now toggleable via stallDetectionEnabled flag
                  val params = _workoutParameters.value
-                 if (params.isJustLift && !params.isAMRAP) {
+                 if ((params.isJustLift || params.isAMRAP) && params.stallDetectionEnabled) {
                      checkAutoStop(metric)
                  }
 
@@ -1139,10 +1139,11 @@ class MainViewModel constructor(
             stopAtTop = stopAtTop.value,
             warmupReps = _workoutParameters.value.warmupReps,
             isAMRAP = firstSetReps == null, // This SET is AMRAP if its reps is null
-            selectedExerciseId = firstExercise.exercise.id
+            selectedExerciseId = firstExercise.exercise.id,
+            stallDetectionEnabled = firstExercise.stallDetectionEnabled
         )
 
-        Logger.d { "Created WorkoutParameters: isAMRAP=${params.isAMRAP}, isJustLift=${params.isJustLift}" }
+        Logger.d { "Created WorkoutParameters: isAMRAP=${params.isAMRAP}, isJustLift=${params.isJustLift}, stallDetection=${params.stallDetectionEnabled}" }
         updateWorkoutParameters(params)
     }
 
@@ -2319,7 +2320,8 @@ class MainViewModel constructor(
             _workoutParameters.value = _workoutParameters.value.copy(
                 reps = targetReps ?: 0,
                 weightPerCableKg = setWeight,
-                isAMRAP = targetReps == null
+                isAMRAP = targetReps == null,
+                stallDetectionEnabled = currentExercise.stallDetectionEnabled
             )
 
             repCounter.resetCountsOnly()
@@ -2368,7 +2370,8 @@ class MainViewModel constructor(
                     workoutType = nextExercise.workoutType,
                     progressionRegressionKg = nextExercise.progressionKg,
                     selectedExerciseId = nextExercise.exercise.id,
-                    isAMRAP = nextSetReps == null
+                    isAMRAP = nextSetReps == null,
+                    stallDetectionEnabled = nextExercise.stallDetectionEnabled
                 )
 
                 repCounter.resetCountsOnly()
@@ -2397,7 +2400,8 @@ class MainViewModel constructor(
                         workoutType = nextExercise.workoutType,
                         progressionRegressionKg = nextExercise.progressionKg,
                         selectedExerciseId = nextExercise.exercise.id,
-                        isAMRAP = nextSetReps == null
+                        isAMRAP = nextSetReps == null,
+                        stallDetectionEnabled = nextExercise.stallDetectionEnabled
                     )
 
                     repCounter.resetCountsOnly()
@@ -2420,7 +2424,8 @@ class MainViewModel constructor(
             _workoutParameters.value = _workoutParameters.value.copy(
                 reps = targetReps ?: 0,
                 weightPerCableKg = setWeight,
-                isAMRAP = targetReps == null
+                isAMRAP = targetReps == null,
+                stallDetectionEnabled = currentExercise.stallDetectionEnabled
             )
 
             repCounter.resetCountsOnly()
@@ -2445,7 +2450,8 @@ class MainViewModel constructor(
                     workoutType = nextExercise.workoutType,
                     progressionRegressionKg = nextExercise.progressionKg,
                     selectedExerciseId = nextExercise.exercise.id,
-                    isAMRAP = nextSetReps == null
+                    isAMRAP = nextSetReps == null,
+                    stallDetectionEnabled = nextExercise.stallDetectionEnabled
                 )
 
                 repCounter.reset()
@@ -2505,7 +2511,8 @@ data class JustLiftDefaults(
     val weightChangePerRep: Int, // In display units (kg or lbs based on user preference)
     val workoutModeId: Int, // 0=OldSchool, 1=Pump, 2=Echo
     val eccentricLoadPercentage: Int = 100,
-    val echoLevelValue: Int = 1 // 0=Hard, 1=Harder, 2=Hardest, 3=Epic
+    val echoLevelValue: Int = 1, // 0=Hard, 1=Harder, 2=Hardest, 3=Epic
+    val stallDetectionEnabled: Boolean = true // Stall detection auto-stop toggle
 ) {
     /**
      * Convert stored mode ID to WorkoutType

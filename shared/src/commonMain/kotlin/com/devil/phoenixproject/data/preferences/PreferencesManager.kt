@@ -74,8 +74,31 @@ data class JustLiftDefaults(
     val weightPerCableKg: Float = 20f,
     val weightChangePerRep: Float = 0f,
     val eccentricLoadPercentage: Int = 100,
-    val echoLevelValue: Int = 2
-)
+    val echoLevelValue: Int = 2,
+    val stallDetectionEnabled: Boolean = true  // Stall detection auto-stop toggle
+) {
+    fun getEccentricLoad(): com.devil.phoenixproject.domain.model.EccentricLoad {
+        return com.devil.phoenixproject.domain.model.EccentricLoad.entries.find { it.percentage == eccentricLoadPercentage }
+            ?: com.devil.phoenixproject.domain.model.EccentricLoad.LOAD_100
+    }
+
+    fun getEchoLevel(): com.devil.phoenixproject.domain.model.EchoLevel {
+        return com.devil.phoenixproject.domain.model.EchoLevel.entries.find { it.levelValue == echoLevelValue }
+            ?: com.devil.phoenixproject.domain.model.EchoLevel.HARDER
+    }
+
+    fun toWorkoutType(): com.devil.phoenixproject.domain.model.WorkoutType {
+        return when (workoutModeId) {
+            0 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.OldSchool)
+            2 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.Pump)
+            3 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.TUT)
+            4 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.TUTBeast)
+            6 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.EccentricOnly)
+            10 -> com.devil.phoenixproject.domain.model.WorkoutType.Echo(getEchoLevel(), getEccentricLoad())
+            else -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.OldSchool)
+        }
+    }
+}
 
 /**
  * Preferences Manager interface

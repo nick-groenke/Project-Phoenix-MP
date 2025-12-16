@@ -77,6 +77,7 @@ fun JustLiftScreen(
     var weightChangePerRep by remember { mutableStateOf(0) } // Progression/Regression value
     var eccentricLoad by remember { mutableStateOf(EccentricLoad.LOAD_100) }
     var echoLevel by remember { mutableStateOf(EchoLevel.HARDER) }
+    var stallDetectionEnabled by remember { mutableStateOf(true) }
     var defaultsLoaded by remember { mutableStateOf(false) }
 
     // Load saved Just Lift defaults on screen init
@@ -102,7 +103,10 @@ fun JustLiftScreen(
                 eccentricLoad = defaults.getEccentricLoad()
                 echoLevel = defaults.getEchoLevel()
 
-                Logger.d("Loaded Just Lift defaults: modeId=${defaults.workoutModeId}, weight=${defaults.weightPerCableKg}kg, progression=${defaults.weightChangePerRep}")
+                // Restore stall detection setting
+                stallDetectionEnabled = defaults.stallDetectionEnabled
+
+                Logger.d("Loaded Just Lift defaults: modeId=${defaults.workoutModeId}, weight=${defaults.weightPerCableKg}kg, progression=${defaults.weightChangePerRep}, stallDetection=$stallDetectionEnabled")
             }
             defaultsLoaded = true
         }
@@ -150,7 +154,7 @@ fun JustLiftScreen(
     }
 
     // Update parameters whenever user changes them
-    LaunchedEffect(selectedMode, weightPerCable, weightChangePerRep) {
+    LaunchedEffect(selectedMode, weightPerCable, weightChangePerRep, stallDetectionEnabled) {
         val weightChangeKg = if (weightUnit == WeightUnit.LB) {
             weightChangePerRep / 2.20462f
         } else {
@@ -162,7 +166,8 @@ fun JustLiftScreen(
             weightPerCableKg = weightPerCable,
             progressionRegressionKg = weightChangeKg,
             isJustLift = true,
-            useAutoStart = true // Enable auto-start for Just Lift
+            useAutoStart = true, // Enable auto-start for Just Lift
+            stallDetectionEnabled = stallDetectionEnabled
         )
         viewModel.updateWorkoutParameters(updatedParameters)
     }
@@ -247,6 +252,41 @@ fun JustLiftScreen(
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Stall Detection Toggle Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.medium, vertical = Spacing.small),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Stall Detection",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Auto-stop set when movement pauses for 5 seconds",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = stallDetectionEnabled,
+                            onCheckedChange = { stallDetectionEnabled = it }
                         )
                     }
                 }

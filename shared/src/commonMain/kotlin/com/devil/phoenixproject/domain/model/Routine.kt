@@ -48,6 +48,8 @@ data class RoutineExercise(
     val isAMRAP: Boolean = false,
     // Per Set Rest Time toggle - when true, each set has its own rest time; when false, single rest time applies to all sets
     val perSetRestTime: Boolean = false,
+    // Stall detection toggle - when true, auto-stops set if user hesitates too long (applies to AMRAP/Just Lift modes)
+    val stallDetectionEnabled: Boolean = true,
     // Superset configuration
     val supersetGroupId: String? = null,  // Exercises with same ID are in same superset
     val supersetOrder: Int = 0,           // Order within the superset
