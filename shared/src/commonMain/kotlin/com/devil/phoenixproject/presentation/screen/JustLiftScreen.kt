@@ -45,13 +45,17 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.data.repository.AutoStopUiState
+import com.devil.phoenixproject.data.repository.UserProfileRepository
 import com.devil.phoenixproject.domain.model.*
 import com.devil.phoenixproject.presentation.components.CompactNumberPicker
 import com.devil.phoenixproject.presentation.components.ExpressiveSlider
+import com.devil.phoenixproject.presentation.components.ProfileSpeedDial
 import com.devil.phoenixproject.presentation.components.ProgressionSlider
 import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
 import com.devil.phoenixproject.ui.theme.Spacing
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
 import com.devil.phoenixproject.ui.theme.ThemeMode
 
 /**
@@ -83,6 +87,12 @@ fun JustLiftScreen(
     var eccentricLoad by remember { mutableStateOf(EccentricLoad.LOAD_100) }
     var echoLevel by remember { mutableStateOf(EchoLevel.HARDER) }
     var defaultsLoaded by remember { mutableStateOf(false) }
+    // Profile management
+    val scope = rememberCoroutineScope()
+    val profileRepository: UserProfileRepository = koinInject()
+    val profiles by profileRepository.allProfiles.collectAsState()
+    val activeProfile by profileRepository.activeProfile.collectAsState()
+    var showAddProfileDialog by remember { mutableStateOf(false) }
 
     // Load saved Just Lift defaults on screen init
     LaunchedEffect(Unit) {
@@ -179,7 +189,18 @@ fun JustLiftScreen(
         viewModel.updateTopBarTitle("Just Lift")
     }
 
-    Scaffold { padding ->
+    Scaffold(
+        floatingActionButton = {
+            ProfileSpeedDial(
+                profiles = profiles,
+                activeProfile = activeProfile,
+                onProfileSelected = { profile ->
+                    scope.launch { profileRepository.setActiveProfile(profile.id) }
+                },
+                onAddProfile = { showAddProfileDialog = true }
+            )
+        }
+    ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -467,6 +488,44 @@ fun JustLiftScreen(
                     onDismiss = { viewModel.clearConnectionError() }
                 )
             }
+        // Add Profile Dialog
+        if (showAddProfileDialog) {
+            var newProfileName by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showAddProfileDialog = false },
+                title = { Text("Add Profile") },
+                text = {
+                    OutlinedTextField(
+                        value = newProfileName,
+                        onValueChange = { newProfileName = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            if (newProfileName.isNotBlank()) {
+                                scope.launch {
+                                    val colorIndex = profiles.size % 8
+                                    profileRepository.createProfile(newProfileName.trim(), colorIndex)
+                                }
+                                showAddProfileDialog = false
+                            }
+                        },
+                        enabled = newProfileName.isNotBlank()
+                    ) {
+                        Text("Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddProfileDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
         }
     }
 }
