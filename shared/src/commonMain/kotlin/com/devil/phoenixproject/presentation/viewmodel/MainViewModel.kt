@@ -2664,7 +2664,7 @@ class MainViewModel constructor(
         restTimerJob?.cancel()
         bodyweightTimerJob?.cancel()
         repEventsCollectionJob?.cancel()
-        log.i { "MainViewModel cleared, all jobs cancelled" }
+        Logger.i { "MainViewModel cleared, all jobs cancelled" }
     }
 }
 

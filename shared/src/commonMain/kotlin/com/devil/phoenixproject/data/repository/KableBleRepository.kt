@@ -30,6 +30,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import co.touchlab.kermit.Logger
 import kotlin.time.Clock
 import kotlin.uuid.ExperimentalUuidApi
@@ -118,6 +120,15 @@ class KableBleRepository : BleRepository {
 
         // Heartbeat no-op command (MUST be 4 bytes)
         private val HEARTBEAT_NO_OP = byteArrayOf(0x00, 0x00, 0x00, 0x00)
+
+        // Load validation (Task 8)
+        private const val MAX_WEIGHT_KG = 220.0f  // Trainer+ hardware limit
+
+        // Timeout disconnect detection (Task 13)
+        private const val MAX_CONSECUTIVE_TIMEOUTS = 5
+
+        // Handle state hysteresis (Task 14)
+        private const val STATE_TRANSITION_DWELL_MS = 200L
     }
 
     // Kable characteristic references - PRIMARY (required for basic operation)

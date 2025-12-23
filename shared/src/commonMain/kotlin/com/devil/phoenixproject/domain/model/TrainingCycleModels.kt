@@ -192,7 +192,7 @@ data class PlannedSet(
 
         fun warmup(
             id: String = generateUUID(),
-            routineExerciseId: Long,
+            routineExerciseId: String,
             setNumber: Int,
             targetReps: Int,
             targetWeightKg: Float

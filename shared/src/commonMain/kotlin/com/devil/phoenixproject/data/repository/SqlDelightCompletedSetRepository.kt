@@ -25,7 +25,7 @@ class SqlDelightCompletedSetRepository(
 
     private fun mapToPlannedSet(
         id: String,
-        routineExerciseId: Long,
+        routineExerciseId: String,
         setNumber: Long,
         setType: String,
         targetReps: Long?,
@@ -73,7 +73,7 @@ class SqlDelightCompletedSetRepository(
 
     // ==================== Planned Sets ====================
 
-    override suspend fun getPlannedSets(routineExerciseId: Long): List<PlannedSet> {
+    override suspend fun getPlannedSets(routineExerciseId: String): List<PlannedSet> {
         return withContext(Dispatchers.IO) {
             queries.selectPlannedSetsByRoutineExercise(routineExerciseId, ::mapToPlannedSet).executeAsList()
         }
