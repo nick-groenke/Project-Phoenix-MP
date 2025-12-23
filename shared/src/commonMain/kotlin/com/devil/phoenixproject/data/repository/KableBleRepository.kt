@@ -1222,6 +1222,9 @@ class KableBleRepository : BleRepository {
         monitorNotificationCount = 0L
         log.i { "📊 Monitor notifications reset (previous session: $previousCount notifications)" }
 
+        // Reset velocity initialization flag (Task 10)
+        isFirstVelocitySample = true
+
         if (forAutoStart) {
             // AUTO-START MODE: Initialize handle state machine
             // Start in WaitingForRest state - must see handles at rest (low position) before arming grab detection
@@ -1244,13 +1247,19 @@ class KableBleRepository : BleRepository {
 
         // Start sequential polling using suspend-based reads (official app approach)
         monitorPollingJob = scope.launch {
-            var failCount = 0
-            var successCount = 0L
-            var consecutiveTimeouts = 0
-            log.i { "🔄 Starting SEQUENTIAL monitor polling (with timeout=${HEARTBEAT_READ_TIMEOUT_MS}ms, forAutoStart=$forAutoStart)" }
+            // Task 4: Prevent concurrent polling restarts with mutex
+            if (monitorPollingMutex.isLocked) {
+                log.w { "Monitor polling restart in progress, skipping duplicate" }
+                return@launch
+            }
+            monitorPollingMutex.withLock {
+                var failCount = 0
+                var successCount = 0L
+                var consecutiveTimeouts = 0
+                log.i { "🔄 Starting SEQUENTIAL monitor polling (with timeout=${HEARTBEAT_READ_TIMEOUT_MS}ms, forAutoStart=$forAutoStart)" }
 
-            try {
-                while (_connectionState.value is ConnectionState.Connected && isActive) {
+                try {
+                    while (_connectionState.value is ConnectionState.Connected && isActive) {
                     try {
                         // CRITICAL: Wrap read in timeout to prevent indefinite hangs
                         // BLE stack can sometimes fail to return success/failure callback
