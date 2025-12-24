@@ -18,6 +18,8 @@ env:
   BUNDLE_ID: com.devil.phoenixproject.projectphoenix
   SCHEME: VitruvianPhoenix
   PROJECT_PATH: iosApp/VitruvianPhoenix/VitruvianPhoenix.xcodeproj
+  # Increase JVM heap for Kotlin/Native compilation (DevirtualizationAnalysis needs lots of RAM)
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx8g -XX:+UseParallelGC -XX:MaxMetaspaceSize=1g"
 
 jobs:
   build-ios:
@@ -46,8 +48,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
       - name: Build shared XCFramework
-        run: ./gradlew :shared:assembleSharedReleaseXCFramework
+        run: ./gradlew :shared:assembleSharedReleaseXCFramework --no-parallel
+        # --no-parallel reduces peak memory by building architectures sequentially
 
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
