@@ -8,8 +8,7 @@ import kotlinx.coroutines.flow.Flow
  * Repository interface for managing personal records (PRs)
  *
  * This interface defines the contract for accessing and managing personal records
- * for exercises. Implementations will handle platform-specific data access
- * (Android Room, iOS CoreData, Desktop SQLite, etc.)
+ * for exercises. Implementations handle platform-specific data access.
  */
 interface PersonalRecordRepository {
     /**

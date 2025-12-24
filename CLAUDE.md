@@ -15,9 +15,6 @@ Kotlin Multiplatform app for controlling Vitruvian Trainer workout machines via 
 ./gradlew :androidApp:assembleDebug
 ./gradlew :androidApp:installDebug
 
-# Desktop (run directly)
-./gradlew :desktopApp:run
-
 # iOS framework (requires macOS)
 ./gradlew :shared:assembleXCFramework
 
@@ -41,7 +38,6 @@ Kotlin Multiplatform app for controlling Vitruvian Trainer workout machines via 
 ### Module Structure
 - **shared/** - Kotlin Multiplatform library with business logic
 - **androidApp/** - Android application (Compose, Min SDK 26)
-- **desktopApp/** - Desktop application (Compose Multiplatform)
 - **iosApp/** - iOS application (SwiftUI + shared framework)
 
 ### Shared Module Source Sets
@@ -49,8 +45,7 @@ Kotlin Multiplatform app for controlling Vitruvian Trainer workout machines via 
 shared/src/
 ├── commonMain/     # Cross-platform code (domain models, interfaces, database)
 ├── androidMain/    # Android implementations (Nordic BLE, Android SQLite driver)
-├── iosMain/        # iOS implementations (Native SQLite driver)
-└── desktopMain/    # Desktop implementations (SQLite driver)
+└── iosMain/        # iOS implementations (Native SQLite driver)
 ```
 
 ### Key Patterns

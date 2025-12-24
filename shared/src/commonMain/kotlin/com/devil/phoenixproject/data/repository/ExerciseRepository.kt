@@ -20,8 +20,7 @@ data class ExerciseVideoEntity(
  * Repository interface for exercise library management
  *
  * This interface defines the contract for accessing and managing exercises
- * from the exercise library. Implementations will handle platform-specific
- * data access (Android Room, iOS CoreData, Desktop SQLite, etc.)
+ * from the exercise library. Implementations handle platform-specific data access.
  */
 interface ExerciseRepository {
     /**

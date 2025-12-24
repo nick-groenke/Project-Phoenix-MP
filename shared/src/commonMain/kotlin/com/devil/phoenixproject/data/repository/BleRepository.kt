@@ -134,9 +134,7 @@ data class ReconnectionRequest(
 /**
  * BLE Repository interface for Vitruvian machine communication.
  *
- * Implementations:
- * - KableBleRepository (commonMain): Kable-based implementation for Android/iOS
- * - StubBleRepository (commonMain): No-op stub for platforms without BLE (Desktop)
+ * Implementation: KableBleRepository (commonMain) - Kable-based implementation for Android/iOS
  */
 interface BleRepository {
     val connectionState: StateFlow<ConnectionState>
@@ -219,40 +217,4 @@ interface BleRepository {
      * Does NOT disconnect the device.
      */
     fun stopPolling()
-}
-
-/**
- * Stub BLE Repository for compilation - does nothing
- */
-class StubBleRepository : BleRepository {
-    override val connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    override val metricsFlow: Flow<WorkoutMetric> = MutableStateFlow(
-        WorkoutMetric(loadA = 0f, loadB = 0f, positionA = 0f, positionB = 0f)
-    )
-    override val scannedDevices = MutableStateFlow<List<ScannedDevice>>(emptyList())
-    override val handleDetection = MutableStateFlow(HandleDetection())
-    override val repEvents: Flow<RepNotification> = kotlinx.coroutines.flow.emptyFlow()
-    override val handleState = MutableStateFlow(HandleState.WaitingForRest)
-    override val deloadOccurredEvents: Flow<Unit> = kotlinx.coroutines.flow.emptyFlow()
-    override val reconnectionRequested: Flow<ReconnectionRequest> = kotlinx.coroutines.flow.emptyFlow()
-    override val heuristicData = MutableStateFlow<com.devil.phoenixproject.domain.model.HeuristicStatistics?>(null)
-
-    override suspend fun startScanning() = Result.success(Unit)
-    override suspend fun stopScanning() {}
-    override suspend fun connect(device: ScannedDevice) = Result.success(Unit)
-    override suspend fun cancelConnection() {}
-    override suspend fun disconnect() {}
-    override suspend fun scanAndConnect(timeoutMs: Long) = Result.success(Unit)
-    override suspend fun setColorScheme(schemeIndex: Int) = Result.success(Unit)
-    override suspend fun sendWorkoutCommand(command: ByteArray) = Result.success(Unit)
-    override suspend fun sendInitSequence() = Result.success(Unit)
-    override suspend fun startWorkout(params: com.devil.phoenixproject.domain.model.WorkoutParameters) = Result.success(Unit)
-    override suspend fun stopWorkout() = Result.success(Unit)
-    override suspend fun sendStopCommand() = Result.success(Unit)
-    override fun enableHandleDetection(enabled: Boolean) {}
-    override fun resetHandleState() {}
-    override fun enableJustLiftWaitingMode() {}
-    override fun restartMonitorPolling() {}
-    override fun startActiveWorkoutPolling() {}
-    override fun stopPolling() {}
 }

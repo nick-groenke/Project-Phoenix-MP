@@ -9,7 +9,6 @@ import androidx.compose.ui.Modifier
  * Platform implementations:
  * - Android: Native Android NumberPicker wheel
  * - iOS: Native UIPickerView wheel
- * - Desktop: Button-based with editable text field
  *
  * Supports both integer and fractional values with configurable step size.
  *

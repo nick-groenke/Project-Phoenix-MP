@@ -8,8 +8,7 @@ import androidx.compose.ui.Modifier
  *
  * Platform-specific implementations provide actual video playback:
  * - Android: Uses VideoView wrapped in AndroidView
- * - Desktop: Shows video URL with fallback message
- * - iOS: Future implementation with AVPlayer
+ * - iOS: AVPlayer implementation
  */
 @Composable
 expect fun VideoPlayer(

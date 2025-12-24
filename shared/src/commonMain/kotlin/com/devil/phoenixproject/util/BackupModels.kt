@@ -9,7 +9,7 @@ import kotlinx.serialization.Serializable
  * Design rationale:
  * - Separate from SQLDelight generated classes for clean serialization
  * - Uses primitive types (String, Int, Long, Float, Boolean) for JSON compatibility
- * - Platform-agnostic - works on Android, iOS, and Desktop
+ * - Platform-agnostic - works on Android and iOS
  */
 
 /**

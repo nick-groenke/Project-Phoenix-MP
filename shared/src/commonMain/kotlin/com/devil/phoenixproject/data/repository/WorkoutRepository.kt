@@ -4,7 +4,6 @@ import com.devil.phoenixproject.domain.model.PersonalRecord
 import com.devil.phoenixproject.domain.model.Routine
 import com.devil.phoenixproject.domain.model.WorkoutSession
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 
 /**
  * Personal record entity - stub for database
@@ -107,30 +106,3 @@ data class PhaseStatisticsData(
     val timestamp: Long
 )
 
-/**
- * Stub Workout Repository for compilation
- */
-class StubWorkoutRepository : WorkoutRepository {
-    override fun getAllSessions() = flowOf(emptyList<WorkoutSession>())
-    override suspend fun saveSession(session: WorkoutSession) {}
-    override suspend fun deleteSession(sessionId: String) {}
-    override suspend fun deleteAllSessions() {}
-    override fun getRecentSessions(limit: Int) = flowOf(emptyList<WorkoutSession>())
-    override suspend fun getSession(sessionId: String): WorkoutSession? = null
-
-    override fun getAllRoutines() = flowOf(emptyList<Routine>())
-    override suspend fun saveRoutine(routine: Routine) {}
-    override suspend fun updateRoutine(routine: Routine) {}
-    override suspend fun deleteRoutine(routineId: String) {}
-    override suspend fun getRoutineById(routineId: String): Routine? = null
-    override suspend fun markRoutineUsed(routineId: String) {}
-
-    override fun getAllPersonalRecords() = flowOf(emptyList<PersonalRecordEntity>())
-    override suspend fun updatePRIfBetter(exerciseId: String, weightKg: Float, reps: Int, mode: String) {}
-    override suspend fun saveMetrics(sessionId: String, metrics: List<com.devil.phoenixproject.domain.model.WorkoutMetric>) {}
-    override fun getMetricsForSession(sessionId: String) = flowOf(emptyList<com.devil.phoenixproject.domain.model.WorkoutMetric>())
-    override suspend fun getMetricsForSessionSync(sessionId: String) = emptyList<com.devil.phoenixproject.domain.model.WorkoutMetric>()
-    override suspend fun getRecentSessionsSync(limit: Int) = emptyList<WorkoutSession>()
-    override suspend fun savePhaseStatistics(sessionId: String, stats: com.devil.phoenixproject.domain.model.HeuristicStatistics) {}
-    override fun getAllPhaseStatistics() = flowOf(emptyList<PhaseStatisticsData>())
-}

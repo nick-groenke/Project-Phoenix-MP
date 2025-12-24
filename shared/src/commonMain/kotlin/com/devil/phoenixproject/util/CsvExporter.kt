@@ -93,33 +93,3 @@ interface CsvExporter {
      */
     fun shareCSV(fileUri: String, fileName: String)
 }
-
-/**
- * Stub implementation for platforms without export support
- */
-class StubCsvExporter : CsvExporter {
-    override fun exportPersonalRecords(
-        personalRecords: List<PersonalRecord>,
-        exerciseNames: Map<String, String>,
-        weightUnit: WeightUnit,
-        formatWeight: (Float, WeightUnit) -> String
-    ): Result<String> = Result.failure(NotImplementedError("CSV export not available on this platform"))
-
-    override fun exportWorkoutHistory(
-        workoutSessions: List<WorkoutSession>,
-        exerciseNames: Map<String, String>,
-        weightUnit: WeightUnit,
-        formatWeight: (Float, WeightUnit) -> String
-    ): Result<String> = Result.failure(NotImplementedError("CSV export not available on this platform"))
-
-    override fun exportPRProgression(
-        personalRecords: List<PersonalRecord>,
-        exerciseNames: Map<String, String>,
-        weightUnit: WeightUnit,
-        formatWeight: (Float, WeightUnit) -> String
-    ): Result<String> = Result.failure(NotImplementedError("CSV export not available on this platform"))
-
-    override fun shareCSV(fileUri: String, fileName: String) {
-        // No-op
-    }
-}

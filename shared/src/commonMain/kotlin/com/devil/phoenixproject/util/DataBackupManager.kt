@@ -413,16 +413,3 @@ abstract class BaseDataBackupManager(
 
     override suspend fun getShareableContent(): String = exportToJson()
 }
-
-/**
- * Stub implementation for platforms that don't support file operations yet
- */
-class StubDataBackupManager(database: VitruvianDatabase) : BaseDataBackupManager(database) {
-    override suspend fun saveToFile(backup: BackupData): Result<String> {
-        return Result.failure(UnsupportedOperationException("File operations not supported on this platform"))
-    }
-
-    override suspend fun importFromFile(filePath: String): Result<ImportResult> {
-        return Result.failure(UnsupportedOperationException("File operations not supported on this platform"))
-    }
-}
