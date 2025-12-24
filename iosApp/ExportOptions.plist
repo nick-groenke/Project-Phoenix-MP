@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Export method: app-store, ad-hoc, development, enterprise -->
+    <key>method</key>
+    <string>app-store</string>
+
+    <!-- Your Apple Developer Team ID (10-character alphanumeric) -->
+    <key>teamID</key>
+    <string>BDJDR669ZV</string>
+
+    <!-- Upload to App Store Connect after export -->
+    <key>destination</key>
+    <string>upload</string>
+
+    <!-- Generate app store compatible bitcode -->
+    <key>uploadBitcode</key>
+    <false/>
+
+    <!-- Upload symbols for crash reporting -->
+    <key>uploadSymbols</key>
+    <true/>
+
+    <!-- Signing style: manual or automatic -->
+    <key>signingStyle</key>
+    <string>manual</string>
+
+    <!-- Provisioning profile mapping -->
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.devil.phoenixproject.projectphoenix</key>
+        <string>macdevil</string>
+    </dict>
+</dict>
+</plist>
