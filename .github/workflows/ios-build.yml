@@ -68,6 +68,23 @@ jobs:
             -framework shared/build/bin/iosArm64/releaseFramework/shared.framework \
             -output shared/build/XCFrameworks/release/shared.xcframework
 
+      - name: Copy Compose resources for Xcode
+        run: |
+          # Compose Multiplatform generates resources at this path
+          RESOURCE_SRC="shared/build/kotlin-multiplatform-resources/aggregated-resources/iosArm64/composeResources"
+          RESOURCE_DST="iosApp/VitruvianPhoenix/compose-resources"
+
+          if [ -d "$RESOURCE_SRC" ]; then
+            mkdir -p "$RESOURCE_DST"
+            cp -R "$RESOURCE_SRC"/* "$RESOURCE_DST"/
+            echo "Copied compose resources to $RESOURCE_DST"
+            ls -la "$RESOURCE_DST"
+          else
+            echo "Warning: Compose resources not found at $RESOURCE_SRC"
+            # Create empty directory to prevent Xcode error if no resources exist
+            mkdir -p "$RESOURCE_DST"
+          fi
+
       - name: Select Xcode version
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
