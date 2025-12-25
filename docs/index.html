@@ -634,8 +634,14 @@
                         <span class="platform-icon">🤖</span>
                         <h3>Android</h3>
                     </div>
-                    <p>Join instantly via Google Play internal testing. No signup required.</p>
-                    <a class="btn primary" href="https://play.google.com/apps/internaltest/4701411249460974791" target="_blank" rel="noopener noreferrer">Join Android Beta</a>
+                    <p>Sign up and we'll add you to the Google Play internal testing program. Use your Google account email.</p>
+                    <form action="https://formspree.io/f/mvzopgoy" method="POST" class="beta-form">
+                        <input type="hidden" name="platform" value="Android">
+                        <div class="form-row-inline">
+                            <input type="email" name="email" required placeholder="your@gmail.com">
+                            <button type="submit" class="btn primary">Request Access</button>
+                        </div>
+                    </form>
                 </div>
                 <div class="beta-divider">
                     <span>or</span>
@@ -655,7 +661,7 @@
                     </form>
                 </div>
             </div>
-            <p class="form-note">We'll only use your email to send TestFlight invites. No spam, ever.</p>
+            <p class="form-note">We'll only use your email to send beta invites. No spam, ever.</p>
         </section>
 
         <section class="grid reveal delay-4">
