@@ -10,7 +10,6 @@
 		DFE6BD572EEDF53700886589 /* shared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DFE6BD562EEDF53700886589 /* shared.framework */; };
 		DFE6BD582EEDF53700886589 /* shared.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DFE6BD562EEDF53700886589 /* shared.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DFE6BD6E2EEDFF6E00886589 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = DFE6BD6D2EEDFF5500886589 /* libsqlite3.tbd */; };
-		DFE6BD792EEE0ABB00886589 /* composeResources in Resources */ = {isa = PBXBuildFile; fileRef = DFE6BD782EEE0ABB00886589 /* composeResources */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -31,7 +30,6 @@
 		DFE6BD472EEDF42200886589 /* VitruvianPhoenix.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VitruvianPhoenix.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFE6BD562EEDF53700886589 /* shared.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = shared.framework; path = ../../shared/build/bin/iosArm64/debugFramework/shared.framework; sourceTree = "<group>"; };
 		DFE6BD6D2EEDFF5500886589 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
-		DFE6BD782EEE0ABB00886589 /* composeResources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = composeResources; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -71,7 +69,6 @@
 		DFE6BD3E2EEDF42200886589 = {
 			isa = PBXGroup;
 			children = (
-				DFE6BD782EEE0ABB00886589 /* composeResources */,
 				DFE6BD492EEDF42200886589 /* VitruvianPhoenix */,
 				DFE6BD552EEDF53700886589 /* Frameworks */,
 				DFE6BD482EEDF42200886589 /* Products */,
@@ -161,7 +158,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DFE6BD792EEE0ABB00886589 /* composeResources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
