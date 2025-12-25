@@ -50,9 +50,9 @@ jobs:
         id: konan-cache
         with:
           path: ~/.konan
-          key: ${{ runner.os }}-konan-2.0.21-iosArm64
+          key: ${{ runner.os }}-konan-2.3.0-iosArm64
           restore-keys: |
-            ${{ runner.os }}-konan-2.0.21-
+            ${{ runner.os }}-konan-2.3.0-
             ${{ runner.os }}-konan-
 
       - name: Konan cache status
@@ -68,21 +68,44 @@ jobs:
             -framework shared/build/bin/iosArm64/releaseFramework/shared.framework \
             -output shared/build/XCFrameworks/release/shared.xcframework
 
+      - name: Link framework to Xcode expected path
+        run: |
+          # Xcode project is configured to look for debugFramework, but we built releaseFramework
+          # Create the debugFramework directory and symlink the release framework there
+          mkdir -p shared/build/bin/iosArm64/debugFramework
+          ln -sfn ../releaseFramework/shared.framework shared/build/bin/iosArm64/debugFramework/shared.framework
+          echo "Linked release framework to debugFramework path:"
+          ls -la shared/build/bin/iosArm64/debugFramework/
+
       - name: Copy Compose resources for Xcode
         run: |
-          # Compose Multiplatform generates resources at this path
-          RESOURCE_SRC="shared/build/kotlin-multiplatform-resources/aggregated-resources/iosArm64/composeResources"
           RESOURCE_DST="iosApp/VitruvianPhoenix/compose-resources"
+          mkdir -p "$RESOURCE_DST"
 
-          if [ -d "$RESOURCE_SRC" ]; then
-            mkdir -p "$RESOURCE_DST"
-            cp -R "$RESOURCE_SRC"/* "$RESOURCE_DST"/
+          # Try multiple possible source paths (Compose MP resource generation varies by version)
+          RESOURCE_PATHS=(
+            "shared/build/processedResources/iosArm64/main/composeResources"
+            "shared/build/kotlin-multiplatform-resources/aggregated-resources/iosArm64/composeResources"
+            "shared/build/generated/compose/resourceGenerator/assembledResources/iosArm64Main/composeResources"
+          )
+
+          FOUND=false
+          for RESOURCE_SRC in "${RESOURCE_PATHS[@]}"; do
+            if [ -d "$RESOURCE_SRC" ] && [ "$(ls -A "$RESOURCE_SRC" 2>/dev/null)" ]; then
+              echo "Found compose resources at: $RESOURCE_SRC"
+              cp -R "$RESOURCE_SRC"/* "$RESOURCE_DST"/
+              FOUND=true
+              break
+            fi
+          done
+
+          if [ "$FOUND" = true ]; then
             echo "Copied compose resources to $RESOURCE_DST"
             ls -la "$RESOURCE_DST"
           else
-            echo "Warning: Compose resources not found at $RESOURCE_SRC"
-            # Create empty directory to prevent Xcode error if no resources exist
-            mkdir -p "$RESOURCE_DST"
+            echo "Warning: No compose resources found. Checked paths:"
+            printf '  - %s\n' "${RESOURCE_PATHS[@]}"
+            echo "Creating empty directory to prevent Xcode build error."
           fi
 
       - name: Select Xcode version
