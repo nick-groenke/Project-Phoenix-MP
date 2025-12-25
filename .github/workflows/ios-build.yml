@@ -5,10 +5,7 @@ on:
     branches: [main]
     tags:
       - 'v*'  # Trigger on version tags for releases
-    paths:
-      - 'shared/**'
-      - 'iosApp/**'
-      - '.github/workflows/ios-build.yml'
+    # Note: No paths filter - tags don't work with paths filter
   pull_request:
     branches: [main]
     paths:
