@@ -428,9 +428,11 @@ class SqlDelightWorkoutRepository(
         withContext(Dispatchers.IO) {
             if (routineId.isBlank()) return@withContext
 
-            // Delete exercises first (foreign key cascade should handle this, but be explicit)
-            queries.deleteRoutineExercises(routineId)
-            queries.deleteRoutineById(routineId)
+            db.transaction {
+                // Delete exercises first (foreign key cascade should handle this, but be explicit)
+                queries.deleteRoutineExercises(routineId)
+                queries.deleteRoutineById(routineId)
+            }
 
             Logger.d { "Deleted routine $routineId" }
         }
