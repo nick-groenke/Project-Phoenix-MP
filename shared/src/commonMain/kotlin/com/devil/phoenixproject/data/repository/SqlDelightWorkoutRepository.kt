@@ -110,8 +110,27 @@ class SqlDelightWorkoutRepository(
         val exercises = exerciseRows.mapNotNull { row ->
             try {
                 // Try to get exercise from library, or create from stored data
-                val exercise = row.exerciseId?.let { exerciseRepository.getExerciseById(it) }
-                    ?: Exercise(
+                val exercise = row.exerciseId?.let { exerciseId ->
+                    exerciseRepository.getExerciseById(exerciseId) ?: run {
+                        Logger.w { "Exercise not found in database: $exerciseId (${row.exerciseName}), using stored data" }
+                        Exercise(
+                            id = row.exerciseId,
+                            name = row.exerciseName,
+                            muscleGroup = row.exerciseMuscleGroup,
+                            muscleGroups = row.exerciseMuscleGroup,
+                            equipment = row.exerciseEquipment,
+                            defaultCableConfig = try {
+                                CableConfiguration.valueOf(row.exerciseDefaultCableConfig)
+                            } catch (e: Exception) {
+                                CableConfiguration.DOUBLE
+                            },
+                            isFavorite = false,
+                            isCustom = false
+                        )
+                    }
+                } ?: run {
+                    Logger.d { "No exerciseId stored for routine exercise ${row.exerciseName}, using stored data" }
+                    Exercise(
                         id = row.exerciseId,
                         name = row.exerciseName,
                         muscleGroup = row.exerciseMuscleGroup,
@@ -125,6 +144,7 @@ class SqlDelightWorkoutRepository(
                         isFavorite = false,
                         isCustom = false
                     )
+                }
 
                 // Parse comma-separated setReps
                 val setReps: List<Int?> = try {
