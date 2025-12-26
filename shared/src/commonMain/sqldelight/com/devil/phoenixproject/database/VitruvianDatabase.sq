@@ -140,7 +140,8 @@ CREATE TABLE RoutineExercise (
     supersetGroupId TEXT,
     supersetOrder INTEGER NOT NULL DEFAULT 0,
     supersetRestSeconds INTEGER NOT NULL DEFAULT 10,
-    FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE
+    FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE,
+    FOREIGN KEY (exerciseId) REFERENCES Exercise(id) ON DELETE SET NULL
 );
 
 CREATE INDEX idx_routine_exercise_routine ON RoutineExercise(routineId);

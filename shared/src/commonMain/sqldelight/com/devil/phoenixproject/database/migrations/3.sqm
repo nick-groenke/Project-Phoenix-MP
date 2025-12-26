@@ -1,0 +1,50 @@
+-- Migration: Add foreign key constraint on RoutineExercise.exerciseId
+-- SQLite requires table recreation to add FK constraints
+
+-- Disable foreign keys during migration
+PRAGMA foreign_keys = OFF;
+
+-- Create new table with FK constraint
+CREATE TABLE RoutineExercise_new (
+    id TEXT NOT NULL PRIMARY KEY,
+    routineId TEXT NOT NULL,
+    exerciseName TEXT NOT NULL,
+    exerciseMuscleGroup TEXT NOT NULL DEFAULT '',
+    exerciseEquipment TEXT NOT NULL DEFAULT '',
+    exerciseDefaultCableConfig TEXT NOT NULL DEFAULT 'DOUBLE',
+    exerciseId TEXT,
+    cableConfig TEXT NOT NULL DEFAULT 'DOUBLE',
+    orderIndex INTEGER NOT NULL,
+    setReps TEXT NOT NULL DEFAULT '10,10,10',
+    weightPerCableKg REAL NOT NULL DEFAULT 0.0,
+    setWeights TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'OldSchool',
+    eccentricLoad INTEGER NOT NULL DEFAULT 100,
+    echoLevel INTEGER NOT NULL DEFAULT 1,
+    progressionKg REAL NOT NULL DEFAULT 0.0,
+    restSeconds INTEGER NOT NULL DEFAULT 60,
+    duration INTEGER,
+    setRestSeconds TEXT NOT NULL DEFAULT '[]',
+    perSetRestTime INTEGER NOT NULL DEFAULT 0,
+    isAMRAP INTEGER NOT NULL DEFAULT 0,
+    supersetGroupId TEXT,
+    supersetOrder INTEGER NOT NULL DEFAULT 0,
+    supersetRestSeconds INTEGER NOT NULL DEFAULT 10,
+    FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE,
+    FOREIGN KEY (exerciseId) REFERENCES Exercise(id) ON DELETE SET NULL
+);
+
+-- Copy data from old table
+INSERT INTO RoutineExercise_new SELECT * FROM RoutineExercise;
+
+-- Drop old table
+DROP TABLE RoutineExercise;
+
+-- Rename new table
+ALTER TABLE RoutineExercise_new RENAME TO RoutineExercise;
+
+-- Recreate index
+CREATE INDEX idx_routine_exercise_routine ON RoutineExercise(routineId);
+
+-- Re-enable foreign keys
+PRAGMA foreign_keys = ON;
