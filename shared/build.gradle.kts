@@ -100,6 +100,14 @@ kotlin {
                 // Lottie Animations (Compose Multiplatform)
                 implementation("io.github.alexzhirkevich:compottie:2.0.0-rc01")
                 implementation("io.github.alexzhirkevich:compottie-resources:2.0.0-rc01")
+
+                // Supabase (Auth and Database)
+                implementation(project.dependencies.platform(libs.supabase.bom))
+                implementation(libs.supabase.auth)
+                implementation(libs.supabase.postgrest)
+
+                // RevenueCat (Subscriptions)
+                implementation(libs.revenuecat.purchases.core)
             }
         }
 

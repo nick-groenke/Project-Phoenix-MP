@@ -4,6 +4,10 @@ kotlin = "2.3.0"
 agp = "8.13.2"
 compose-multiplatform = "1.10.0-rc02"
 
+# Premium Features
+supabase = "3.1.4"
+revenuecat = "2.2.15+17.25.0"
+
 # Kotlinx
 kotlinx-coroutines = "1.10.2"
 kotlinx-serialization = "1.9.0"
@@ -112,6 +116,15 @@ ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version = "3.3.3" 
 vico-charts = { module = "com.patrykandpatrick.vico:compose-m3", version = "2.3.6" }
 
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
+
+# Supabase
+supabase-bom = { module = "io.github.jan-tennert.supabase:bom", version.ref = "supabase" }
+supabase-auth = { module = "io.github.jan-tennert.supabase:auth-kt" }
+supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt" }
+supabase-realtime = { module = "io.github.jan-tennert.supabase:realtime-kt" }
+
+# RevenueCat (KMP)
+revenuecat-purchases-core = { module = "com.revenuecat.purchases:purchases-kmp-core", version.ref = "revenuecat" }
 
 # Testing
 junit = { module = "junit:junit", version.ref = "junit" }
