@@ -921,7 +921,12 @@ CREATE TABLE UserProfile (
     name TEXT NOT NULL,
     colorIndex INTEGER NOT NULL DEFAULT 0,
     createdAt INTEGER NOT NULL,
-    isActive INTEGER NOT NULL DEFAULT 0
+    isActive INTEGER NOT NULL DEFAULT 0,
+    -- Subscription fields (added in migration 4)
+    supabase_user_id TEXT,
+    subscription_status TEXT DEFAULT 'free',
+    subscription_expires_at INTEGER,
+    last_auth_at INTEGER
 );
 
 -- Queries for UserProfile
@@ -949,3 +954,20 @@ DELETE FROM UserProfile WHERE id = ? AND id != 'default';
 
 countProfiles:
 SELECT COUNT(*) FROM UserProfile;
+
+-- Subscription queries
+linkProfileToSupabase:
+UPDATE UserProfile
+SET supabase_user_id = ?, last_auth_at = ?
+WHERE id = ?;
+
+updateSubscriptionStatus:
+UPDATE UserProfile
+SET subscription_status = ?, subscription_expires_at = ?
+WHERE id = ?;
+
+getProfileBySupabaseId:
+SELECT * FROM UserProfile WHERE supabase_user_id = ?;
+
+getActiveProfileSubscriptionStatus:
+SELECT subscription_status FROM UserProfile WHERE isActive = 1;
