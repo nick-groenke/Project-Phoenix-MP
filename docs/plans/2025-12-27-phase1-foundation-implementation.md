@@ -159,9 +159,9 @@ git commit -m "build: add Supabase and RevenueCat to shared module"
 package com.devil.phoenixproject.config
 
 object AppConfig {
-    // Supabase - Replace with your project values
-    const val SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
-    const val SUPABASE_ANON_KEY = "YOUR_ANON_KEY"
+    // Supabase
+    const val SUPABASE_URL = "https://ilzlswmatadlnsuxatcv.supabase.co"
+    const val SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlsemxzd21hdGFkbG5zdXhhdGN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4ODA5MzUsImV4cCI6MjA4MjQ1NjkzNX0._fNm07SvkCsMId2oBrg-Rf_5HCypTwLkjWu0T_5QizA"
 
     // RevenueCat - These are set per-platform
     object RevenueCat {
