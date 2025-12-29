@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.data.repository.ExerciseRepository
@@ -22,7 +21,6 @@ import com.devil.phoenixproject.domain.model.WeightUnit
 import com.devil.phoenixproject.domain.model.WorkoutSession
 import com.devil.phoenixproject.presentation.components.charts.*
 import com.devil.phoenixproject.util.KmpUtils
-import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
 /**
@@ -58,7 +56,6 @@ fun ThisWeekSummaryCard(
     workoutSessions: List<WorkoutSession>,
     personalRecords: List<PersonalRecord>,
     weightUnit: WeightUnit,
-    formatWeight: (Float, WeightUnit) -> String,
     modifier: Modifier = Modifier
 ) {
     val now = remember { KmpUtils.currentTimeMillis() }

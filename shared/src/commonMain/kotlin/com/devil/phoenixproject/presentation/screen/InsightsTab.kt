@@ -58,7 +58,6 @@ fun InsightsTab(
                 workoutSessions = workoutSessions,
                 personalRecords = prs,
                 weightUnit = weightUnit,
-                formatWeight = formatWeight,
                 modifier = Modifier.fillMaxWidth()
             )
         }
