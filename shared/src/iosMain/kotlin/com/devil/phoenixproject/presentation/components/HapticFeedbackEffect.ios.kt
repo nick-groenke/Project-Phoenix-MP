@@ -62,12 +62,14 @@ private class IosSoundManager {
     private val players = mutableMapOf<HapticEvent, AVAudioPlayer?>()
     private val badgeSoundPlayers = mutableListOf<AVAudioPlayer?>()
     private val prSoundPlayers = mutableListOf<AVAudioPlayer?>()
+    private val repCountSoundPlayers = mutableListOf<AVAudioPlayer?>()
 
     init {
         setupAudioSession()
         loadSounds()
         loadBadgeSounds()
         loadPRSounds()
+        loadRepCountSounds()
     }
 
     private fun setupAudioSession() {
@@ -162,6 +164,21 @@ private class IosSoundManager {
         log.d { "Loaded ${prSoundPlayers.size} PR celebration sounds" }
     }
 
+    private fun loadRepCountSounds() {
+        // Load rep count sounds rep_01 through rep_25
+        // Files are named rep_01, rep_02, ..., rep_25
+        for (i in 1..25) {
+            val fileName = "rep_${i.toString().padStart(2, '0')}"
+            val player = loadSound(fileName)
+            repCountSoundPlayers.add(player)
+            if (player == null) {
+                log.w { "Failed to load rep count sound: $fileName" }
+            }
+        }
+        val loadedCount = repCountSoundPlayers.count { it != null }
+        log.d { "Loaded $loadedCount/25 rep count sounds" }
+    }
+
     private fun loadSound(fileName: String): AVAudioPlayer? {
         // Try different audio formats in order of preference
         val extensions = listOf("caf", "m4a", "wav", "mp3")
@@ -186,8 +203,8 @@ private class IosSoundManager {
     }
 
     fun playSound(event: HapticEvent) {
-        // ERROR event has no sound, REP_COUNT_ANNOUNCED is handled by separate audio system
-        if (event is HapticEvent.ERROR || event is HapticEvent.REP_COUNT_ANNOUNCED) return
+        // ERROR event has no sound
+        if (event is HapticEvent.ERROR) return
 
         val player = when (event) {
             is HapticEvent.BADGE_EARNED -> {
@@ -200,7 +217,13 @@ private class IosSoundManager {
                     prSoundPlayers[kotlin.random.Random.nextInt(prSoundPlayers.size)]
                 } else null
             }
-            is HapticEvent.REP_COUNT_ANNOUNCED -> null // Handled by separate audio system
+            is HapticEvent.REP_COUNT_ANNOUNCED -> {
+                // Play the numbered rep count sound (index is repNumber - 1)
+                val index = event.repNumber - 1
+                if (index in repCountSoundPlayers.indices) {
+                    repCountSoundPlayers[index]
+                } else null
+            }
             else -> players[event]
         }
 
@@ -242,6 +265,15 @@ private class IosSoundManager {
             }
         }
         prSoundPlayers.clear()
+
+        repCountSoundPlayers.forEach { player ->
+            try {
+                player?.stop()
+            } catch (e: Exception) {
+                // Ignore cleanup errors
+            }
+        }
+        repCountSoundPlayers.clear()
 
         try {
             AVAudioSession.sharedInstance().setActive(
