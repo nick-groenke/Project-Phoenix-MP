@@ -20,7 +20,8 @@ data class UserPreferences(
     val beepsEnabled: Boolean = true,
     val colorScheme: Int = 0,
     val stallDetectionEnabled: Boolean = true,  // NEW - default enabled
-    val discoModeUnlocked: Boolean = false  // Easter egg - unlocked by tapping LED header 7 times
+    val discoModeUnlocked: Boolean = false,  // Easter egg - unlocked by tapping LED header 7 times
+    val audioRepCountEnabled: Boolean = false  // Audio rep count announcements during workout
 )
 
 /**
@@ -124,6 +125,7 @@ interface PreferencesManager {
     suspend fun setColorScheme(scheme: Int)
     suspend fun setStallDetectionEnabled(enabled: Boolean)
     suspend fun setDiscoModeUnlocked(unlocked: Boolean)
+    suspend fun setAudioRepCountEnabled(enabled: Boolean)
 
     suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults?
     suspend fun saveSingleExerciseDefaults(defaults: SingleExerciseDefaults)
@@ -159,6 +161,7 @@ class SettingsPreferencesManager(
         private const val KEY_COLOR_SCHEME = "color_scheme"
         private const val KEY_STALL_DETECTION = "stall_detection_enabled"
         private const val KEY_DISCO_MODE_UNLOCKED = "disco_mode_unlocked"
+        private const val KEY_AUDIO_REP_COUNT = "audio_rep_count_enabled"
         private const val KEY_JUST_LIFT_DEFAULTS = "just_lift_defaults"
         private const val KEY_PREFIX_EXERCISE = "exercise_defaults_"
     }
@@ -177,7 +180,8 @@ class SettingsPreferencesManager(
             beepsEnabled = settings.getBoolean(KEY_BEEPS_ENABLED, true),
             colorScheme = settings.getInt(KEY_COLOR_SCHEME, 0),
             stallDetectionEnabled = settings.getBoolean(KEY_STALL_DETECTION, true),
-            discoModeUnlocked = settings.getBoolean(KEY_DISCO_MODE_UNLOCKED, false)
+            discoModeUnlocked = settings.getBoolean(KEY_DISCO_MODE_UNLOCKED, false),
+            audioRepCountEnabled = settings.getBoolean(KEY_AUDIO_REP_COUNT, false)
         )
     }
 
@@ -222,6 +226,11 @@ class SettingsPreferencesManager(
     override suspend fun setDiscoModeUnlocked(unlocked: Boolean) {
         settings.putBoolean(KEY_DISCO_MODE_UNLOCKED, unlocked)
         updateAndEmit { copy(discoModeUnlocked = unlocked) }
+    }
+
+    override suspend fun setAudioRepCountEnabled(enabled: Boolean) {
+        settings.putBoolean(KEY_AUDIO_REP_COUNT, enabled)
+        updateAndEmit { copy(audioRepCountEnabled = enabled) }
     }
 
     override suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults? {
