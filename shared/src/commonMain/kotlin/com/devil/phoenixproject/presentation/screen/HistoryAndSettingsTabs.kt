@@ -782,6 +782,7 @@ fun SettingsTab(
     enableVideoPlayback: Boolean,
     darkModeEnabled: Boolean,
     stallDetectionEnabled: Boolean = true,
+    audioRepCountEnabled: Boolean = false,
     selectedColorSchemeIndex: Int = 0,
     onWeightUnitChange: (WeightUnit) -> Unit,
     onAutoplayChange: (Boolean) -> Unit,
@@ -789,6 +790,7 @@ fun SettingsTab(
     onEnableVideoPlaybackChange: (Boolean) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
     onStallDetectionChange: (Boolean) -> Unit,
+    onAudioRepCountChange: (Boolean) -> Unit,
     onColorSchemeChange: (Int) -> Unit,
     onDeleteAllWorkouts: () -> Unit,
     onNavigateToConnectionLogs: () -> Unit = {},
@@ -1224,6 +1226,36 @@ fun SettingsTab(
                     Switch(
                         checked = stallDetectionEnabled,
                         onCheckedChange = onStallDetectionChange
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.medium))
+
+                // Audio Rep Counter toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            "Audio Rep Counter",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Play spoken rep numbers during working sets",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = audioRepCountEnabled,
+                        onCheckedChange = onAudioRepCountChange
                     )
                 }
             }

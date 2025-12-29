@@ -893,6 +893,10 @@ class MainViewModel constructor(
         viewModelScope.launch { preferencesManager.setStallDetectionEnabled(enabled) }
     }
 
+    fun setAudioRepCountEnabled(enabled: Boolean) {
+        viewModelScope.launch { preferencesManager.setAudioRepCountEnabled(enabled) }
+    }
+
     fun setColorScheme(schemeIndex: Int) {
         viewModelScope.launch {
             bleRepository.setColorScheme(schemeIndex)

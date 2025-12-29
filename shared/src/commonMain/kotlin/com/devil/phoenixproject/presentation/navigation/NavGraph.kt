@@ -183,7 +183,8 @@ fun NavGraph(
         ) {
             AnalyticsScreen(
                 viewModel = viewModel,
-                themeMode = themeMode
+                themeMode = themeMode,
+                onNavigateToBadges = { navController.navigate(NavigationRoutes.Badges.route) }
             )
         }
 
@@ -244,12 +245,14 @@ fun NavGraph(
                 enableVideoPlayback = userPreferences.enableVideoPlayback,
                 darkModeEnabled = themeMode == ThemeMode.DARK,
                 stallDetectionEnabled = userPreferences.stallDetectionEnabled,
+                audioRepCountEnabled = userPreferences.audioRepCountEnabled,
                 onWeightUnitChange = { viewModel.setWeightUnit(it) },
                 onAutoplayChange = { viewModel.setAutoplayEnabled(it) },
                 onStopAtTopChange = { viewModel.setStopAtTop(it) },
                 onEnableVideoPlaybackChange = { viewModel.setEnableVideoPlayback(it) },
                 onDarkModeChange = { enabled -> onThemeModeChange(if (enabled) ThemeMode.DARK else ThemeMode.LIGHT) },
                 onStallDetectionChange = { viewModel.setStallDetectionEnabled(it) },
+                onAudioRepCountChange = { viewModel.setAudioRepCountEnabled(it) },
                 onColorSchemeChange = { viewModel.setColorScheme(it) },
                 onDeleteAllWorkouts = { viewModel.deleteAllWorkouts() },
                 onNavigateToConnectionLogs = { navController.navigate(NavigationRoutes.ConnectionLogs.route) },
