@@ -235,6 +235,10 @@ class KableBleRepository : BleRepository {
     private val _heuristicData = MutableStateFlow<HeuristicStatistics?>(null)
     override val heuristicData: StateFlow<HeuristicStatistics?> = _heuristicData.asStateFlow()
 
+    // Disco mode state (Easter egg - rapidly cycles LED colors)
+    private val _discoModeActive = MutableStateFlow(false)
+    override val discoModeActive: StateFlow<Boolean> = _discoModeActive.asStateFlow()
+
     // Command response flow (for awaitResponse() protocol handshake)
     private val _commandResponses = MutableSharedFlow<UByte>(
         replay = 0,
@@ -247,6 +251,10 @@ class KableBleRepository : BleRepository {
     private var peripheral: Peripheral? = null
     private val discoveredAdvertisements = mutableMapOf<String, Advertisement>()
     private var scanJob: kotlinx.coroutines.Job? = null
+
+    // Disco mode job and state
+    private var discoJob: kotlinx.coroutines.Job? = null
+    private var lastColorSchemeIndex: Int = 0  // To restore after disco mode
 
     // Handle detection
     private var handleDetectionEnabled = false
@@ -1219,6 +1227,9 @@ class KableBleRepository : BleRepository {
      *                     If false, sets handle state to Active (for active workout monitoring).
      */
     private fun startMonitorPolling(p: Peripheral, forAutoStart: Boolean = false) {
+        // Stop disco mode if running (safety - don't interfere with workout polling)
+        stopDiscoMode()
+
         // Reset position tracking for new workout/session
         minPositionSeen = Double.MAX_VALUE
         maxPositionSeen = Double.MIN_VALUE
@@ -1435,6 +1446,9 @@ class KableBleRepository : BleRepository {
     }
 
     override suspend fun startWorkout(params: WorkoutParameters): Result<Unit> {
+        // Stop disco mode if running (safety - don't interfere with workout)
+        stopDiscoMode()
+
         log.i { "Starting workout with params: type=${params.workoutType}, weight=${params.weightPerCableKg}kg" }
         return try {
             // Build workout start command based on parameters
@@ -2350,5 +2364,82 @@ class KableBleRepository : BleRepository {
      */
     private fun currentTimeMillis(): Long {
         return Clock.System.now().toEpochMilliseconds()
+    }
+
+    // ========== Disco Mode (Easter Egg) ==========
+
+    override fun startDiscoMode() {
+        // Don't start if already running
+        if (discoJob?.isActive == true) {
+            log.d { "🕺 Disco mode already active" }
+            return
+        }
+
+        // Don't start if not connected
+        if (peripheral == null) {
+            log.w { "🕺 Cannot start disco mode - not connected" }
+            return
+        }
+
+        // Don't start during active workout (monitorPollingJob running means workout in progress)
+        if (monitorPollingJob?.isActive == true) {
+            log.w { "🕺 Cannot start disco mode - workout in progress" }
+            return
+        }
+
+        log.i { "🕺 Starting DISCO MODE! 🪩" }
+        _discoModeActive.value = true
+
+        val discoIntervalMs = 300L  // Interval between color changes
+        val discoColorCount = 7     // Number of colors (excluding "None")
+
+        discoJob = scope.launch {
+            var colorIndex = 0
+            while (isActive) {
+                try {
+                    // Send color command directly (faster than setColorScheme which logs)
+                    val command = com.devil.phoenixproject.util.BlePacketFactory.createColorSchemeCommand(colorIndex)
+                    sendWorkoutCommand(command)
+
+                    // Cycle to next color (0-6, skipping "None" at index 7)
+                    colorIndex = (colorIndex + 1) % discoColorCount
+
+                    delay(discoIntervalMs)
+                } catch (e: Exception) {
+                    log.w { "🕺 Disco mode error: ${e.message}" }
+                    break
+                }
+            }
+            log.d { "🕺 Disco mode coroutine ended" }
+        }
+    }
+
+    override fun stopDiscoMode() {
+        if (discoJob?.isActive != true && !_discoModeActive.value) {
+            return
+        }
+
+        log.i { "🕺 Stopping disco mode, restoring color scheme $lastColorSchemeIndex" }
+        discoJob?.cancel()
+        discoJob = null
+        _discoModeActive.value = false
+
+        // Restore the last selected color scheme
+        scope.launch {
+            try {
+                val command = com.devil.phoenixproject.util.BlePacketFactory.createColorSchemeCommand(lastColorSchemeIndex)
+                sendWorkoutCommand(command)
+            } catch (e: Exception) {
+                log.w { "Failed to restore color scheme: ${e.message}" }
+            }
+        }
+    }
+
+    /**
+     * Update the stored color scheme index (called when user changes color in settings).
+     * This allows disco mode to restore the correct color when stopped.
+     */
+    fun setLastColorSchemeIndex(index: Int) {
+        lastColorSchemeIndex = index
     }
 }

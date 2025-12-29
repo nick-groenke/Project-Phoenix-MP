@@ -19,7 +19,8 @@ data class UserPreferences(
     val enableVideoPlayback: Boolean = true,
     val beepsEnabled: Boolean = true,
     val colorScheme: Int = 0,
-    val stallDetectionEnabled: Boolean = true  // NEW - default enabled
+    val stallDetectionEnabled: Boolean = true,  // NEW - default enabled
+    val discoModeUnlocked: Boolean = false  // Easter egg - unlocked by tapping LED header 7 times
 )
 
 /**
@@ -122,6 +123,7 @@ interface PreferencesManager {
     suspend fun setBeepsEnabled(enabled: Boolean)
     suspend fun setColorScheme(scheme: Int)
     suspend fun setStallDetectionEnabled(enabled: Boolean)
+    suspend fun setDiscoModeUnlocked(unlocked: Boolean)
 
     suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults?
     suspend fun saveSingleExerciseDefaults(defaults: SingleExerciseDefaults)
@@ -156,6 +158,7 @@ class SettingsPreferencesManager(
         private const val KEY_BEEPS_ENABLED = "beeps_enabled"
         private const val KEY_COLOR_SCHEME = "color_scheme"
         private const val KEY_STALL_DETECTION = "stall_detection_enabled"
+        private const val KEY_DISCO_MODE_UNLOCKED = "disco_mode_unlocked"
         private const val KEY_JUST_LIFT_DEFAULTS = "just_lift_defaults"
         private const val KEY_PREFIX_EXERCISE = "exercise_defaults_"
     }
@@ -173,7 +176,8 @@ class SettingsPreferencesManager(
             enableVideoPlayback = settings.getBoolean(KEY_VIDEO_PLAYBACK, true),
             beepsEnabled = settings.getBoolean(KEY_BEEPS_ENABLED, true),
             colorScheme = settings.getInt(KEY_COLOR_SCHEME, 0),
-            stallDetectionEnabled = settings.getBoolean(KEY_STALL_DETECTION, true)
+            stallDetectionEnabled = settings.getBoolean(KEY_STALL_DETECTION, true),
+            discoModeUnlocked = settings.getBoolean(KEY_DISCO_MODE_UNLOCKED, false)
         )
     }
 
@@ -215,6 +219,10 @@ class SettingsPreferencesManager(
         updateAndEmit { copy(stallDetectionEnabled = enabled) }
     }
 
+    override suspend fun setDiscoModeUnlocked(unlocked: Boolean) {
+        settings.putBoolean(KEY_DISCO_MODE_UNLOCKED, unlocked)
+        updateAndEmit { copy(discoModeUnlocked = unlocked) }
+    }
 
     override suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults? {
         val key = "$KEY_PREFIX_EXERCISE${exerciseId}_$cableConfig"

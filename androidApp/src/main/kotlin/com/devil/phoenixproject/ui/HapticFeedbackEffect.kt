@@ -27,6 +27,8 @@ fun HapticFeedbackEffect(
     val hapticFeedback = LocalHapticFeedback.current
 
     // Create and manage SoundPool
+    // Uses USAGE_ASSISTANCE_SONIFICATION to mix with music without interrupting it
+    // This ensures workout sounds play alongside user's music playback
     val soundPool = remember {
         SoundPool.Builder()
             .setMaxStreams(2)
@@ -49,6 +51,7 @@ fun HapticFeedbackEffect(
                 put(HapticEvent.WORKOUT_START, soundPool.load(context, R.raw.chirpchirp, 1))
                 put(HapticEvent.WORKOUT_END, soundPool.load(context, R.raw.chirpchirp, 1))
                 put(HapticEvent.REST_ENDING, soundPool.load(context, R.raw.restover, 1))
+                put(HapticEvent.DISCO_MODE_UNLOCKED, soundPool.load(context, R.raw.discomode, 1))
                 // ERROR has no sound
             } catch (e: Exception) {
                 Logger.e(e) { "Failed to load sounds" }
@@ -84,7 +87,8 @@ private fun playHapticFeedback(event: HapticEvent, hapticFeedback: HapticFeedbac
         HapticEvent.WARMUP_COMPLETE,
         HapticEvent.WORKOUT_COMPLETE,
         HapticEvent.REST_ENDING,
-        HapticEvent.ERROR -> HapticFeedbackType.LongPress // Strong vibration
+        HapticEvent.ERROR,
+        HapticEvent.DISCO_MODE_UNLOCKED -> HapticFeedbackType.LongPress // Strong vibration
     }
 
     try {

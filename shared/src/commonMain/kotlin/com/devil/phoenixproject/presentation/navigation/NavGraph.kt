@@ -238,6 +238,8 @@ fun NavGraph(
             val userPreferences by viewModel.userPreferences.collectAsState()
             val isAutoConnecting by viewModel.isAutoConnecting.collectAsState()
             val connectionError by viewModel.connectionError.collectAsState()
+            val connectionState by viewModel.connectionState.collectAsState()
+            val discoModeActive by viewModel.discoModeActive.collectAsState()
             SettingsTab(
                 weightUnit = weightUnit,
                 autoplayEnabled = userPreferences.autoplayEnabled,
@@ -259,7 +261,14 @@ fun NavGraph(
                 connectionError = connectionError,
                 onClearConnectionError = { viewModel.clearConnectionError() },
                 onCancelAutoConnecting = { viewModel.cancelAutoConnecting() },
-                onSetTitle = { viewModel.updateTopBarTitle(it) }
+                onSetTitle = { viewModel.updateTopBarTitle(it) },
+                // Disco mode Easter egg
+                discoModeUnlocked = userPreferences.discoModeUnlocked,
+                discoModeActive = discoModeActive,
+                isConnected = connectionState is com.devil.phoenixproject.domain.model.ConnectionState.Connected,
+                onDiscoModeUnlocked = { viewModel.unlockDiscoMode() },
+                onDiscoModeToggle = { viewModel.toggleDiscoMode(it) },
+                onPlayDiscoSound = { viewModel.emitDiscoSound() }
             )
         }
 

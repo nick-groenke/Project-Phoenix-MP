@@ -883,8 +883,42 @@ class MainViewModel constructor(
     fun setStallDetectionEnabled(enabled: Boolean) {
         viewModelScope.launch { preferencesManager.setStallDetectionEnabled(enabled) }
     }
+
     fun setColorScheme(schemeIndex: Int) {
-        viewModelScope.launch { bleRepository.setColorScheme(schemeIndex) }
+        viewModelScope.launch {
+            bleRepository.setColorScheme(schemeIndex)
+            preferencesManager.setColorScheme(schemeIndex)
+            // Update disco mode's restore color index
+            (bleRepository as? com.devil.phoenixproject.data.repository.KableBleRepository)?.setLastColorSchemeIndex(schemeIndex)
+        }
+    }
+
+    // ========== Disco Mode (Easter Egg) ==========
+
+    val discoModeActive: StateFlow<Boolean> = bleRepository.discoModeActive
+
+    fun unlockDiscoMode() {
+        viewModelScope.launch {
+            preferencesManager.setDiscoModeUnlocked(true)
+            Logger.i { "🕺🪩 DISCO MODE UNLOCKED! 🪩🕺" }
+        }
+    }
+
+    fun toggleDiscoMode(enabled: Boolean) {
+        if (enabled) {
+            bleRepository.startDiscoMode()
+        } else {
+            bleRepository.stopDiscoMode()
+        }
+    }
+
+    /**
+     * Emit disco mode unlock sound event for the celebration popup
+     */
+    fun emitDiscoSound() {
+        viewModelScope.launch {
+            _hapticEvents.emit(HapticEvent.DISCO_MODE_UNLOCKED)
+        }
     }
 
     fun deleteAllWorkouts() {

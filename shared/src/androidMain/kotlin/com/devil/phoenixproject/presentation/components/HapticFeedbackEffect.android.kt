@@ -94,6 +94,14 @@ private fun playHapticFeedback(
                 // Sharp error pulse
                 VibrationEffect.createOneShot(200, 255)
             }
+            HapticEvent.DISCO_MODE_UNLOCKED -> {
+                // Funky disco celebration pattern - rhythmic pulses
+                VibrationEffect.createWaveform(
+                    longArrayOf(0, 80, 60, 80, 60, 80, 60, 120, 80, 120),
+                    intArrayOf(0, 180, 0, 200, 0, 220, 0, 255, 0, 255),
+                    -1
+                )
+            }
         }
         vibrator.vibrate(effect)
     } else {
@@ -117,6 +125,9 @@ private fun playHapticFeedback(
             }
             HapticEvent.ERROR -> {
                 vibrator.vibrate(200)
+            }
+            HapticEvent.DISCO_MODE_UNLOCKED -> {
+                vibrator.vibrate(longArrayOf(0, 80, 60, 80, 60, 80, 60, 120, 80, 120), -1)
             }
         }
     }

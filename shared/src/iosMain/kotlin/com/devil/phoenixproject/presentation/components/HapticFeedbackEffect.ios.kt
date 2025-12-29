@@ -12,7 +12,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.collectLatest
 import platform.AVFAudio.AVAudioPlayer
 import platform.AVFAudio.AVAudioSession
-import platform.AVFAudio.AVAudioSessionCategoryPlayback
+import platform.AVFAudio.AVAudioSessionCategoryAmbient
+import platform.AVFAudio.AVAudioSessionCategoryOptionMixWithOthers
 import platform.AVFAudio.AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
 import platform.AVFAudio.setActive
 import platform.Foundation.NSBundle
@@ -68,7 +69,13 @@ private class IosSoundManager {
     private fun setupAudioSession() {
         try {
             val session = AVAudioSession.sharedInstance()
-            session.setCategory(AVAudioSessionCategoryPlayback, null)
+            // Use Ambient category with MixWithOthers to play alongside music
+            // This ensures our sounds don't interrupt user's music playback
+            session.setCategory(
+                AVAudioSessionCategoryAmbient,
+                AVAudioSessionCategoryOptionMixWithOthers,
+                null
+            )
             session.setActive(true, null)
         } catch (e: Exception) {
             log.w { "Failed to setup audio session: ${e.message}" }
@@ -83,7 +90,8 @@ private class IosSoundManager {
             HapticEvent.WORKOUT_COMPLETE to "boopbeepbeep",
             HapticEvent.WORKOUT_START to "chirpchirp",
             HapticEvent.WORKOUT_END to "chirpchirp",
-            HapticEvent.REST_ENDING to "restover"
+            HapticEvent.REST_ENDING to "restover",
+            HapticEvent.DISCO_MODE_UNLOCKED to "discomode"
             // ERROR has no sound
         )
 
@@ -188,6 +196,16 @@ private fun playHapticFeedback(event: HapticEvent) {
                 val generator = UINotificationFeedbackGenerator()
                 generator.prepare()
                 generator.notificationOccurred(UINotificationFeedbackType.UINotificationFeedbackTypeError)
+            }
+            HapticEvent.DISCO_MODE_UNLOCKED -> {
+                // Funky celebration - heavy impact followed by success notification
+                val impactGenerator = UIImpactFeedbackGenerator(UIImpactFeedbackStyle.UIImpactFeedbackStyleHeavy)
+                impactGenerator.prepare()
+                impactGenerator.impactOccurred()
+                // Follow with success notification for the "unlocked" feeling
+                val notificationGenerator = UINotificationFeedbackGenerator()
+                notificationGenerator.prepare()
+                notificationGenerator.notificationOccurred(UINotificationFeedbackType.UINotificationFeedbackTypeSuccess)
             }
         }
     } catch (e: Exception) {
