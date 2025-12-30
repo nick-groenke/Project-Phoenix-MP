@@ -48,7 +48,8 @@ fun CycleEditorScreen(
     cycleId: String, // "new" or ID
     navController: androidx.navigation.NavController,
     viewModel: MainViewModel,
-    routines: List<Routine> // Pass routines for the picker
+    routines: List<Routine>, // Pass routines for the picker
+    initialDayCount: Int? = null // Optional day count from DayCountPickerScreen
 ) {
     val repository: TrainingCycleRepository = koinInject()
     val scope = rememberCoroutineScope()
@@ -58,7 +59,7 @@ fun CycleEditorScreen(
     var hasInitialized by remember { mutableStateOf(false) }
 
     // Load Data
-    LaunchedEffect(cycleId) {
+    LaunchedEffect(cycleId, initialDayCount) {
         if (!hasInitialized) {
             if (cycleId != "new") {
                 val cycle = repository.getCycleById(cycleId)
@@ -66,14 +67,14 @@ fun CycleEditorScreen(
                     state = state.copy(cycleName = cycle.name, days = cycle.days, description = cycle.description ?: "")
                 }
             } else {
-                // Start with a standard 3-day template
+                // Use initialDayCount if provided, otherwise default to 3-day template
+                val dayCount = initialDayCount ?: 3
+                val days = (1..dayCount).map { dayNum ->
+                    CycleDay.create(generateUUID(), "temp", dayNum, "Day $dayNum")
+                }
                 state = state.copy(
                     cycleName = "New Cycle",
-                    days = listOf(
-                        CycleDay.create(generateUUID(), "temp", 1, "Workout A"),
-                        CycleDay.create(generateUUID(), "temp", 2, "Workout B"),
-                        CycleDay.restDay(generateUUID(), "temp", 3)
-                    )
+                    days = days
                 )
             }
             hasInitialized = true

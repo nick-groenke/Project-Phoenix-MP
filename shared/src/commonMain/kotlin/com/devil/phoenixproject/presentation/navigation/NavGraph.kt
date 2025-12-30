@@ -326,19 +326,38 @@ fun NavGraph(
             )
         }
 
+        // Day Count Picker - select number of days for new cycle
+        composable(NavigationRoutes.DayCountPicker.route) {
+            DayCountPickerScreen(
+                onDayCountSelected = { dayCount ->
+                    navController.navigate(NavigationRoutes.CycleEditor.createRoute("new", dayCount))
+                },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
         // Cycle Editor - timeline builder for rolling schedules
         composable(
             route = NavigationRoutes.CycleEditor.route,
-            arguments = listOf(navArgument("cycleId") { type = NavType.StringType })
+            arguments = listOf(
+                navArgument("cycleId") { type = NavType.StringType },
+                navArgument("dayCount") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
         ) { backStackEntry ->
             val cycleId = backStackEntry.arguments?.read { getStringOrNull("cycleId") } ?: "new"
+            val dayCount = backStackEntry.arguments?.read { getStringOrNull("dayCount") }?.toIntOrNull()
             val routines by viewModel.routines.collectAsState()
 
             CycleEditorScreen(
                 cycleId = cycleId,
                 navController = navController,
                 viewModel = viewModel,
-                routines = routines
+                routines = routines,
+                initialDayCount = dayCount
             )
         }
     }
