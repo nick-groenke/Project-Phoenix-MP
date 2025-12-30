@@ -98,13 +98,19 @@ fun TrainingCyclesScreen(
         selectedDayNumber = cycleProgress[activeCycle?.id]?.currentDayNumber
     }
 
-    // Load progress for all cycles
-    LaunchedEffect(cycles) {
+    // Load progress for all cycles, with auto-advance check for active cycle
+    // Auto-advance marks day as missed after 24+ hours and advances to next day
+    LaunchedEffect(cycles, activeCycle) {
         val progressMap = mutableMapOf<String, CycleProgress>()
+        val activeId = activeCycle?.id
         cycles.forEach { cycle ->
-            cycleRepository.getCycleProgress(cycle.id)?.let { progress ->
-                progressMap[cycle.id] = progress
+            val progress = if (cycle.id == activeId) {
+                // Check auto-advance for active cycle
+                cycleRepository.checkAndAutoAdvance(cycle.id)
+            } else {
+                cycleRepository.getCycleProgress(cycle.id)
             }
+            progress?.let { progressMap[cycle.id] = it }
         }
         cycleProgress = progressMap
     }

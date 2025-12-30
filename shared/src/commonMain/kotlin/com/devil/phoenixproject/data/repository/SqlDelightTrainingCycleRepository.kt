@@ -503,4 +503,30 @@ class SqlDelightTrainingCycleRepository(
             )
         }
     }
+
+    override suspend fun checkAndAutoAdvance(cycleId: String): CycleProgress? {
+        return withContext(Dispatchers.IO) {
+            val progress = getCycleProgress(cycleId) ?: return@withContext null
+            val cycle = getCycleById(cycleId) ?: return@withContext null
+
+            if (progress.shouldAutoAdvance()) {
+                val updated = progress.advanceToNextDay(cycle.days.size, markMissed = true)
+
+                queries.updateCycleProgress(
+                    current_day_number = updated.currentDayNumber.toLong(),
+                    last_completed_date = updated.lastCompletedDate,
+                    cycle_start_date = updated.cycleStartDate,
+                    last_advanced_at = updated.lastAdvancedAt,
+                    completed_days = intSetToJson(updated.completedDays),
+                    missed_days = intSetToJson(updated.missedDays),
+                    rotation_count = updated.rotationCount.toLong(),
+                    cycle_id = cycleId
+                )
+
+                updated
+            } else {
+                progress
+            }
+        }
+    }
 }
