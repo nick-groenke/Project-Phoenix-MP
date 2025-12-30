@@ -172,19 +172,8 @@ fun RoutineEditorScreen(
                         ) {
                             Text("Save", fontWeight = FontWeight.Bold)
                         }
-                    } else {
-                        // Contextual Actions
-                        if (state.selectedIds.isNotEmpty()) {
-                            // Delete Action
-                            IconButton(onClick = {
-                                val remaining = state.exercises.filterNot { it.id in state.selectedIds }
-                                updateExercises(remaining)
-                                state = state.copy(isSelectionMode = false, selectedIds = emptySet())
-                            }) {
-                                Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
                     }
+                    // Selection mode actions moved to bottom bar
                 }
             )
         },
@@ -196,42 +185,90 @@ fun RoutineEditorScreen(
                 exit = slideOutVertically { it }
             ) {
                 BottomAppBar {
-                    val selectedCount = state.selectedIds.size
-                    // Group Button
-                    if (selectedCount >= 2) {
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = {
-                                val newSupersetId = generateSupersetId()
-                                // Find the earliest index to keep them together if desired,
-                                // or just group them in place. Grouping usually implies adjacency.
-                                // For MVP, we just assign the ID.
-                                val newExercises = state.exercises.mapIndexed { index, ex ->
-                                    if (ex.id in state.selectedIds) ex.copy(supersetId = newSupersetId, orderInSuperset = index) else ex
-                                }
-                                updateExercises(newExercises)
-                                state = state.copy(isSelectionMode = false, selectedIds = emptySet())
-                            },
-                            icon = { Icon(Icons.Default.Link, null) },
-                            label = { Text("Group") }
-                        )
-                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // Create Superset Button (2+ exercises selected)
+                        if (state.selectedIds.size >= 2) {
+                            TextButton(
+                                onClick = {
+                                    val routine = state.routine ?: return@TextButton
 
-                    // Ungroup Button
-                    val canUngroup = state.exercises.any { it.id in state.selectedIds && it.supersetId != null }
-                    if (canUngroup) {
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = {
-                                val newExercises = state.exercises.map {
-                                    if (it.id in state.selectedIds) it.copy(supersetId = null, orderInSuperset = 0) else it
+                                    // Create new superset entity
+                                    val existingColors = routine.supersets.map { it.colorIndex }.toSet()
+                                    val colorIndex = SupersetColors.next(existingColors)
+                                    val supersetCount = routine.supersets.size
+                                    val name = "Superset ${'A' + supersetCount}"
+                                    val firstSelectedOrderIndex = state.exercises
+                                        .filter { it.id in state.selectedIds }
+                                        .minOfOrNull { it.orderIndex } ?: 0
+
+                                    val newSuperset = Superset(
+                                        id = generateSupersetId(),
+                                        routineId = routine.id,
+                                        name = name,
+                                        colorIndex = colorIndex,
+                                        restBetweenSeconds = 10,
+                                        orderIndex = firstSelectedOrderIndex
+                                    )
+
+                                    // Update exercises to reference new superset
+                                    var orderInSuperset = 0
+                                    val newExercises = state.exercises.map { ex ->
+                                        if (ex.id in state.selectedIds) {
+                                            ex.copy(supersetId = newSuperset.id, orderInSuperset = orderInSuperset++)
+                                        } else ex
+                                    }
+
+                                    updateRoutine {
+                                        it.copy(
+                                            exercises = newExercises,
+                                            supersets = it.supersets + newSuperset
+                                        )
+                                    }
+                                    state = state.copy(isSelectionMode = false, selectedIds = emptySet())
                                 }
-                                updateExercises(newExercises)
+                            ) {
+                                Icon(Icons.Default.Layers, null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Create Superset")
+                            }
+                        }
+
+                        // Remove from Superset Button
+                        val canUngroup = state.exercises.any { it.id in state.selectedIds && it.supersetId != null }
+                        if (canUngroup) {
+                            TextButton(
+                                onClick = {
+                                    val newExercises = state.exercises.map {
+                                        if (it.id in state.selectedIds) it.copy(supersetId = null, orderInSuperset = 0) else it
+                                    }
+                                    updateExercises(newExercises)
+                                    state = state.copy(isSelectionMode = false, selectedIds = emptySet())
+                                }
+                            ) {
+                                Icon(Icons.Default.LinkOff, null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Remove from Superset")
+                            }
+                        }
+
+                        // Delete Button
+                        TextButton(
+                            onClick = {
+                                val remaining = state.exercises.filterNot { it.id in state.selectedIds }
+                                updateExercises(remaining)
                                 state = state.copy(isSelectionMode = false, selectedIds = emptySet())
                             },
-                            icon = { Icon(Icons.Default.LinkOff, null) },
-                            label = { Text("Ungroup") }
-                        )
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(Icons.Default.Delete, null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Delete")
+                        }
                     }
                 }
             }
