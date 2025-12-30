@@ -108,14 +108,121 @@ fun RoutineEditorScreen(
     }
 
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val list = state.exercises.toMutableList()
-        val fromIndex = from.index
-        val toIndex = to.index
+        val fromKey = from.key as? String ?: return@rememberReorderableLazyListState
+        val toKey = to.key as? String ?: return@rememberReorderableLazyListState
+        val routine = state.routine ?: return@rememberReorderableLazyListState
 
-        if (fromIndex in list.indices && toIndex in list.indices) {
-            val moved = list.removeAt(fromIndex)
-            list.add(toIndex, moved)
-            updateExercises(list)
+        // Determine what's being dragged
+        val isSupersetHeader = fromKey.startsWith("superset_")
+
+        if (isSupersetHeader) {
+            // Dragging a superset header - reorder supersets list
+            val supersetId = fromKey.removePrefix("superset_")
+            val toSupersetKey = if (toKey.startsWith("superset_")) toKey.removePrefix("superset_") else null
+
+            if (toSupersetKey != null) {
+                // Reorder supersets relative to each other
+                val supersets = routine.supersets.toMutableList()
+                val fromIdx = supersets.indexOfFirst { it.id == supersetId }
+                val toIdx = supersets.indexOfFirst { it.id == toSupersetKey }
+
+                if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx) {
+                    val moved = supersets.removeAt(fromIdx)
+                    supersets.add(toIdx, moved)
+                    // Reassign order indices
+                    val reorderedSupersets = supersets.mapIndexed { i, s -> s.copy(orderIndex = i) }
+                    updateRoutine { it.copy(supersets = reorderedSupersets) }
+                }
+            }
+        } else {
+            // Dragging an exercise
+            val exercise = routine.exercises.find { it.id == fromKey }
+                ?: return@rememberReorderableLazyListState
+
+            // Find target context
+            val toSupersetKey = if (toKey.startsWith("superset_")) toKey.removePrefix("superset_") else null
+            val toExercise = routine.exercises.find { it.id == toKey }
+
+            when {
+                // Dropping on a superset header - add to that superset
+                toSupersetKey != null -> {
+                    val superset = routine.supersets.find { it.id == toSupersetKey }
+                        ?: return@rememberReorderableLazyListState
+                    val exercisesInSuperset = routine.exercises.filter { it.supersetId == toSupersetKey }
+                    val newOrderInSuperset = exercisesInSuperset.size
+
+                    val updatedExercises = routine.exercises.map {
+                        if (it.id == fromKey) {
+                            it.copy(supersetId = toSupersetKey, orderInSuperset = newOrderInSuperset)
+                        } else it
+                    }
+                    updateRoutine { it.copy(exercises = updatedExercises) }
+                }
+
+                // Dropping on another exercise
+                toExercise != null -> {
+                    if (exercise.supersetId == toExercise.supersetId) {
+                        // Same context (both standalone or same superset) - reorder
+                        if (exercise.supersetId != null) {
+                            // Within same superset - reorder by orderInSuperset
+                            val supersetId = exercise.supersetId!!
+                            val exercisesInSuperset = routine.exercises
+                                .filter { it.supersetId == supersetId }
+                                .toMutableList()
+                            val fromIdx = exercisesInSuperset.indexOfFirst { it.id == fromKey }
+                            val toIdx = exercisesInSuperset.indexOfFirst { it.id == toKey }
+
+                            if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx) {
+                                val moved = exercisesInSuperset.removeAt(fromIdx)
+                                exercisesInSuperset.add(toIdx, moved)
+                                val reorderedInSuperset = exercisesInSuperset.mapIndexed { i, ex ->
+                                    ex.copy(orderInSuperset = i)
+                                }
+                                val otherExercises = routine.exercises.filter { it.supersetId != supersetId }
+                                updateRoutine { it.copy(exercises = otherExercises + reorderedInSuperset) }
+                            }
+                        } else {
+                            // Both standalone - reorder by orderIndex
+                            val exercises = routine.exercises.toMutableList()
+                            val fromIdx = exercises.indexOfFirst { it.id == fromKey }
+                            val toIdx = exercises.indexOfFirst { it.id == toKey }
+
+                            if (fromIdx >= 0 && toIdx >= 0 && fromIdx != toIdx) {
+                                val moved = exercises.removeAt(fromIdx)
+                                exercises.add(toIdx, moved)
+                                updateExercises(exercises)
+                            }
+                        }
+                    } else {
+                        // Moving between different contexts
+                        if (toExercise.supersetId != null) {
+                            // Moving into a superset
+                            val targetSupersetId = toExercise.supersetId!!
+                            val exercisesInTarget = routine.exercises
+                                .filter { it.supersetId == targetSupersetId }
+                            val toIdx = exercisesInTarget.indexOfFirst { it.id == toKey }
+                            val newOrderInSuperset = if (toIdx >= 0) toIdx else exercisesInTarget.size
+
+                            val updatedExercises = routine.exercises.map {
+                                if (it.id == fromKey) {
+                                    it.copy(supersetId = targetSupersetId, orderInSuperset = newOrderInSuperset)
+                                } else if (it.supersetId == targetSupersetId && it.orderInSuperset >= newOrderInSuperset) {
+                                    it.copy(orderInSuperset = it.orderInSuperset + 1)
+                                } else it
+                            }
+                            updateRoutine { it.copy(exercises = updatedExercises) }
+                        } else {
+                            // Moving out of superset to standalone
+                            val updatedExercises = routine.exercises.map {
+                                if (it.id == fromKey) {
+                                    it.copy(supersetId = null, orderInSuperset = 0)
+                                } else it
+                            }
+                            updateExercises(updatedExercises)
+                        }
+                    }
+                }
+            }
         }
     }
 
