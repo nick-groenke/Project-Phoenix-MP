@@ -238,12 +238,53 @@ fun RoutineEditorScreen(
         },
         floatingActionButton = {
             if (!state.isSelectionMode) {
-                ExtendedFloatingActionButton(
-                    onClick = { showExercisePicker = true },
-                    icon = { Icon(Icons.Default.Add, null) },
-                    text = { Text("Add Exercise") },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                Box {
+                    ExtendedFloatingActionButton(
+                        onClick = { state = state.copy(showAddMenu = true) },
+                        icon = { Icon(Icons.Default.Add, null) },
+                        text = { Text("Add") },
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+
+                    DropdownMenu(
+                        expanded = state.showAddMenu,
+                        onDismissRequest = { state = state.copy(showAddMenu = false) }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Add Exercise") },
+                            leadingIcon = { Icon(Icons.Default.FitnessCenter, null) },
+                            onClick = {
+                                state = state.copy(showAddMenu = false)
+                                showExercisePicker = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Add Superset") },
+                            leadingIcon = { Icon(Icons.Default.Layers, null) },
+                            onClick = {
+                                state = state.copy(showAddMenu = false)
+                                // Create empty superset
+                                val routine = state.routine ?: return@DropdownMenuItem
+                                val existingColors = routine.supersets.map { it.colorIndex }.toSet()
+                                val colorIndex = SupersetColors.next(existingColors)
+                                val supersetCount = routine.supersets.size
+                                val name = "Superset ${'A' + supersetCount}"
+                                val orderIndex = state.items.maxOfOrNull { it.orderIndex }?.plus(1) ?: 0
+
+                                val newSuperset = Superset(
+                                    id = generateSupersetId(),
+                                    routineId = routine.id,
+                                    name = name,
+                                    colorIndex = colorIndex,
+                                    restBetweenSeconds = 10,
+                                    orderIndex = orderIndex
+                                )
+
+                                updateRoutine { it.copy(supersets = it.supersets + newSuperset) }
+                            }
+                        )
+                    }
+                }
             }
         }
     ) { padding ->
