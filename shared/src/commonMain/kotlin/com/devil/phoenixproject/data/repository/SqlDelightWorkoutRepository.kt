@@ -13,6 +13,7 @@ import com.devil.phoenixproject.domain.model.PRType
 import com.devil.phoenixproject.domain.model.ProgramMode
 import com.devil.phoenixproject.domain.model.Routine
 import com.devil.phoenixproject.domain.model.RoutineExercise
+import com.devil.phoenixproject.domain.model.Superset
 import com.devil.phoenixproject.domain.model.WorkoutSession
 import com.devil.phoenixproject.domain.model.WorkoutType
 import com.devil.phoenixproject.domain.model.currentTimeMillis
@@ -107,6 +108,20 @@ class SqlDelightWorkoutRepository(
 
     private suspend fun loadRoutineWithExercises(routineId: String, name: String, createdAt: Long, lastUsed: Long? = null, useCount: Int = 0): Routine {
         val exerciseRows = queries.selectExercisesByRoutine(routineId).executeAsList()
+        val supersetRows = queries.selectSupersetsByRoutine(routineId).executeAsList()
+
+        // Load supersets from database
+        val supersets = supersetRows.map { row ->
+            Superset(
+                id = row.id,
+                routineId = row.routineId,
+                name = row.name,
+                colorIndex = row.colorIndex.toInt(),
+                restBetweenSeconds = row.restBetweenSeconds.toInt(),
+                orderIndex = row.orderIndex.toInt()
+            )
+        }
+
         val exercises = exerciseRows.mapNotNull { row ->
             try {
                 // Try to get exercise from library, or create from stored data
@@ -202,9 +217,8 @@ class SqlDelightWorkoutRepository(
                     duration = row.duration?.toInt(),
                     isAMRAP = row.isAMRAP == 1L,
                     perSetRestTime = row.perSetRestTime == 1L,
-                    supersetGroupId = row.supersetGroupId,
-                    supersetOrder = row.supersetOrder.toInt(),
-                    supersetRestSeconds = row.supersetRestSeconds.toInt()
+                    supersetId = row.supersetId,
+                    orderInSuperset = row.orderInSuperset.toInt()
                 )
             } catch (e: Exception) {
                 Logger.e(e) { "Failed to map routine exercise: ${row.exerciseId}" }
@@ -216,6 +230,7 @@ class SqlDelightWorkoutRepository(
             id = routineId,
             name = name,
             exercises = exercises,
+            supersets = supersets,
             createdAt = createdAt,
             lastUsed = lastUsed,
             useCount = useCount
@@ -363,8 +378,14 @@ class SqlDelightWorkoutRepository(
                     useCount = routine.useCount.toLong()
                 )
 
-                // Delete existing exercises before re-inserting (prevents duplicates on edit)
+                // Delete existing supersets and exercises before re-inserting
+                queries.deleteSupersetsByRoutine(routineId)
                 queries.deleteRoutineExercises(routineId)
+
+                // Insert all supersets
+                routine.supersets.forEach { superset ->
+                    insertSuperset(routineId, superset)
+                }
 
                 // Insert all exercises
                 routine.exercises.forEachIndexed { index, exercise ->
@@ -372,7 +393,7 @@ class SqlDelightWorkoutRepository(
                 }
             }
 
-            Logger.d { "Saved routine '${routine.name}' with ${routine.exercises.size} exercises" }
+            Logger.d { "Saved routine '${routine.name}' with ${routine.exercises.size} exercises and ${routine.supersets.size} supersets" }
         }
     }
 
@@ -402,9 +423,19 @@ class SqlDelightWorkoutRepository(
             setRestSeconds = json.encodeToString(exercise.setRestSeconds),
             perSetRestTime = if (exercise.perSetRestTime) 1L else 0L,
             isAMRAP = if (exercise.isAMRAP) 1L else 0L,
-            supersetGroupId = exercise.supersetGroupId,
-            supersetOrder = exercise.supersetOrder.toLong(),
-            supersetRestSeconds = exercise.supersetRestSeconds.toLong()
+            supersetId = exercise.supersetId,
+            orderInSuperset = exercise.orderInSuperset.toLong()
+        )
+    }
+
+    private fun insertSuperset(routineId: String, superset: Superset) {
+        queries.insertSuperset(
+            id = superset.id,
+            routineId = routineId,
+            name = superset.name,
+            colorIndex = superset.colorIndex.toLong(),
+            restBetweenSeconds = superset.restBetweenSeconds.toLong(),
+            orderIndex = superset.orderIndex.toLong()
         )
     }
 
@@ -420,8 +451,14 @@ class SqlDelightWorkoutRepository(
                     id = routineId
                 )
 
-                // Delete existing exercises and re-insert
+                // Delete existing supersets and exercises, then re-insert
+                queries.deleteSupersetsByRoutine(routineId)
                 queries.deleteRoutineExercises(routineId)
+
+                // Insert all supersets
+                routine.supersets.forEach { superset ->
+                    insertSuperset(routineId, superset)
+                }
 
                 // Insert all exercises
                 routine.exercises.forEachIndexed { index, exercise ->
@@ -429,7 +466,7 @@ class SqlDelightWorkoutRepository(
                 }
             }
 
-            Logger.d { "Updated routine '${routine.name}' with ${routine.exercises.size} exercises" }
+            Logger.d { "Updated routine '${routine.name}' with ${routine.exercises.size} exercises and ${routine.supersets.size} supersets" }
         }
     }
 
@@ -438,8 +475,9 @@ class SqlDelightWorkoutRepository(
             if (routineId.isBlank()) return@withContext
 
             db.transaction {
-                // Delete exercises first (foreign key cascade should handle this, but be explicit)
+                // Delete exercises and supersets first (foreign key cascade should handle this, but be explicit)
                 queries.deleteRoutineExercises(routineId)
+                queries.deleteSupersetsByRoutine(routineId)
                 queries.deleteRoutineById(routineId)
             }
 
