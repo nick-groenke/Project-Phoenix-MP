@@ -160,11 +160,11 @@ fun TrainingCyclesScreen(
                             onDaySelected = { dayNumber ->
                                 selectedDayNumber = dayNumber
                             },
-                            onStartWorkout = { routineId ->
+                            onStartWorkout = { routineId, cycleId, dayNumber ->
                                 routineId?.let {
                                     viewModel.ensureConnection(
                                         onConnected = {
-                                            viewModel.loadRoutineById(it)
+                                            viewModel.loadRoutineFromCycle(it, cycleId, dayNumber)
                                             viewModel.startWorkout()
                                             navController.navigate(NavigationRoutes.ActiveWorkout.route)
                                         },
@@ -465,7 +465,7 @@ private fun ActiveCycleCard(
     routines: List<Routine>,
     selectedDayNumber: Int?,
     onDaySelected: (Int) -> Unit,
-    onStartWorkout: (String?) -> Unit,
+    onStartWorkout: (routineId: String?, cycleId: String, dayNumber: Int) -> Unit,
     onAdvanceDay: () -> Unit
 ) {
     val currentDay = progress?.currentDayNumber ?: 1
@@ -615,7 +615,7 @@ private fun ActiveCycleCard(
                 } else {
                     if (isViewingCurrentDay) {
                         Button(
-                            onClick = { onStartWorkout(displayedCycleDay?.routineId) },
+                            onClick = { onStartWorkout(displayedCycleDay?.routineId, cycle.id, displayedDayNumber) },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             enabled = displayedCycleDay?.routineId != null

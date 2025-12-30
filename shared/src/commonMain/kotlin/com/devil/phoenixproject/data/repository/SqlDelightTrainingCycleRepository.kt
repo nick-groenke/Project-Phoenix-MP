@@ -504,6 +504,21 @@ class SqlDelightTrainingCycleRepository(
         }
     }
 
+    override suspend fun updateCycleProgress(progress: CycleProgress) {
+        withContext(Dispatchers.IO) {
+            queries.updateCycleProgress(
+                current_day_number = progress.currentDayNumber.toLong(),
+                last_completed_date = progress.lastCompletedDate,
+                cycle_start_date = progress.cycleStartDate,
+                last_advanced_at = progress.lastAdvancedAt,
+                completed_days = intSetToJson(progress.completedDays),
+                missed_days = intSetToJson(progress.missedDays),
+                rotation_count = progress.rotationCount.toLong(),
+                cycle_id = progress.cycleId
+            )
+        }
+    }
+
     override suspend fun checkAndAutoAdvance(cycleId: String): CycleProgress? {
         return withContext(Dispatchers.IO) {
             val progress = getCycleProgress(cycleId) ?: return@withContext null

@@ -12,6 +12,7 @@ import com.devil.phoenixproject.data.repository.HandleState
 import com.devil.phoenixproject.data.repository.PersonalRecordRepository
 import com.devil.phoenixproject.data.repository.RepNotification
 import com.devil.phoenixproject.data.repository.ScannedDevice
+import com.devil.phoenixproject.data.repository.TrainingCycleRepository
 import com.devil.phoenixproject.data.repository.WorkoutRepository
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.domain.model.*
@@ -79,7 +80,8 @@ class MainViewModel constructor(
     val personalRecordRepository: PersonalRecordRepository,
     private val repCounter: RepCounterFromMachine,
     private val preferencesManager: PreferencesManager,
-    private val gamificationRepository: GamificationRepository
+    private val gamificationRepository: GamificationRepository,
+    private val trainingCycleRepository: TrainingCycleRepository
 ) : ViewModel() {
 
     companion object {
@@ -377,6 +379,10 @@ class MainViewModel constructor(
 
     private var currentRoutineSessionId: String? = null
     private var currentRoutineName: String? = null
+
+    // Training Cycle context for tracking cycle progress when workout completes
+    private var activeCycleId: String? = null
+    private var activeCycleDayNumber: Int? = null
 
     private var autoStopStartTime: Long? = null
     private var autoStopTriggered = false
@@ -1407,12 +1413,36 @@ class MainViewModel constructor(
     fun loadRoutineById(routineId: String) {
         val routine = _routines.value.find { it.id == routineId }
         if (routine != null) {
+            clearCycleContext()  // Ensure non-cycle workouts don't update cycle progress
             loadRoutine(routine)
         }
     }
 
+    /**
+     * Load a routine from a training cycle context.
+     * This tracks the cycle and day so we can mark the day as completed when the workout finishes.
+     */
+    fun loadRoutineFromCycle(routineId: String, cycleId: String, dayNumber: Int) {
+        val routine = _routines.value.find { it.id == routineId }
+        if (routine != null) {
+            activeCycleId = cycleId
+            activeCycleDayNumber = dayNumber
+            Logger.d { "Loading routine from cycle: cycleId=$cycleId, dayNumber=$dayNumber" }
+            loadRoutine(routine)
+        }
+    }
+
+    /**
+     * Clear the active cycle context (e.g., when starting a non-cycle workout).
+     */
+    fun clearCycleContext() {
+        activeCycleId = null
+        activeCycleDayNumber = null
+    }
+
     fun clearLoadedRoutine() {
         _loadedRoutine.value = null
+        clearCycleContext()
     }
 
     fun getCurrentExercise(): RoutineExercise? {
@@ -2348,6 +2378,42 @@ class MainViewModel constructor(
             saveJustLiftDefaultsFromWorkout()
         } else if (isSingleExerciseMode()) {
             saveSingleExerciseDefaultsFromWorkout()
+        }
+
+        // Update training cycle progress if this workout was started from a cycle
+        updateCycleProgressIfNeeded()
+    }
+
+    /**
+     * Update cycle progress when a workout is completed from a training cycle.
+     * Marks the day as completed and advances to the next day.
+     * If the user completes a day ahead of the current day, marks skipped days as missed.
+     */
+    private suspend fun updateCycleProgressIfNeeded() {
+        val cycleId = activeCycleId ?: return
+        val dayNumber = activeCycleDayNumber ?: return
+
+        // Clear cycle context immediately to prevent race conditions
+        activeCycleId = null
+        activeCycleDayNumber = null
+
+        try {
+            val cycle = trainingCycleRepository.getCycleById(cycleId)
+            val progress = trainingCycleRepository.getCycleProgress(cycleId)
+
+            if (cycle != null && progress != null) {
+                // Use the CycleProgress model method which handles:
+                // - Adding the day to completedDays set
+                // - Marking any skipped days as missed (in missedDays set)
+                // - Advancing to the next day
+                // - Handling rotation (reset sets when cycling back to Day 1)
+                val updated = progress.markDayCompleted(dayNumber, cycle.days.size)
+                trainingCycleRepository.updateCycleProgress(updated)
+
+                Logger.d { "Cycle progress updated: day $dayNumber completed, now on day ${updated.currentDayNumber}" }
+            }
+        } catch (e: Exception) {
+            Logger.e(e) { "Error updating cycle progress: ${e.message}" }
         }
     }
 
