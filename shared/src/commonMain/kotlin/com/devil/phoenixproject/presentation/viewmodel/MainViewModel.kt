@@ -862,6 +862,18 @@ class MainViewModel constructor(
                  exerciseRepository.getExerciseById(exerciseId)?.name
              }
 
+             // Calculate summary metrics for persistence and display
+             val metrics = collectedMetrics.toList()
+             val isEcho = params.workoutType is WorkoutType.Echo
+             val summary = calculateSetSummaryMetrics(
+                 metrics = metrics,
+                 repCount = repCount.totalReps,
+                 fallbackWeightKg = params.weightPerCableKg,
+                 isEchoMode = isEcho,
+                 warmupRepsCount = repCount.warmupReps,
+                 workingRepsCount = repCount.workingReps
+             )
+
              val session = WorkoutSession(
                  timestamp = workoutStartTime,
                  mode = params.workoutType.displayName,
@@ -875,7 +887,24 @@ class MainViewModel constructor(
                  exerciseId = params.selectedExerciseId,
                  exerciseName = exerciseName,
                  routineSessionId = currentRoutineSessionId,
-                 routineName = currentRoutineName
+                 routineName = currentRoutineName,
+                 // Set Summary Metrics (v0.2.1+)
+                 peakForceConcentricA = summary.peakForceConcentricA,
+                 peakForceConcentricB = summary.peakForceConcentricB,
+                 peakForceEccentricA = summary.peakForceEccentricA,
+                 peakForceEccentricB = summary.peakForceEccentricB,
+                 avgForceConcentricA = summary.avgForceConcentricA,
+                 avgForceConcentricB = summary.avgForceConcentricB,
+                 avgForceEccentricA = summary.avgForceEccentricA,
+                 avgForceEccentricB = summary.avgForceEccentricB,
+                 heaviestLiftKg = summary.heaviestLiftKgPerCable,
+                 totalVolumeKg = summary.totalVolumeKg,
+                 estimatedCalories = summary.estimatedCalories,
+                 warmupAvgWeightKg = if (isEcho) summary.warmupAvgWeightKg else null,
+                 workingAvgWeightKg = if (isEcho) summary.workingAvgWeightKg else null,
+                 burnoutAvgWeightKg = if (isEcho) summary.burnoutAvgWeightKg else null,
+                 peakWeightKg = if (isEcho) summary.peakWeightKg else null,
+                 rpe = _currentSetRpe.value
              )
              workoutRepository.saveSession(session)
 
@@ -889,16 +918,6 @@ class MainViewModel constructor(
              }
 
              // Show Summary
-             val metrics = collectedMetrics.toList()
-             val isEcho = params.workoutType is WorkoutType.Echo
-             val summary = calculateSetSummaryMetrics(
-                 metrics = metrics,
-                 repCount = repCount.totalReps,
-                 fallbackWeightKg = params.weightPerCableKg,
-                 isEchoMode = isEcho,
-                 warmupRepsCount = repCount.warmupReps,
-                 workingRepsCount = repCount.workingReps
-             )
              _workoutState.value = summary
         }
     }
@@ -2301,6 +2320,17 @@ class MainViewModel constructor(
             exerciseRepository.getExerciseById(exerciseId)?.name
         }
 
+        // Calculate summary metrics for persistence
+        val isEchoMode = params.workoutType is WorkoutType.Echo
+        val summary = calculateSetSummaryMetrics(
+            metrics = metricsSnapshot,
+            repCount = working,
+            fallbackWeightKg = params.weightPerCableKg,
+            isEchoMode = isEchoMode,
+            warmupRepsCount = warmup,
+            workingRepsCount = working
+        )
+
         val session = WorkoutSession(
             id = sessionId,
             timestamp = workoutStartTime,
@@ -2317,7 +2347,24 @@ class MainViewModel constructor(
             exerciseId = params.selectedExerciseId,
             exerciseName = exerciseName,
             routineSessionId = currentRoutineSessionId,
-            routineName = currentRoutineName
+            routineName = currentRoutineName,
+            // Set Summary Metrics (v0.2.1+)
+            peakForceConcentricA = summary.peakForceConcentricA,
+            peakForceConcentricB = summary.peakForceConcentricB,
+            peakForceEccentricA = summary.peakForceEccentricA,
+            peakForceEccentricB = summary.peakForceEccentricB,
+            avgForceConcentricA = summary.avgForceConcentricA,
+            avgForceConcentricB = summary.avgForceConcentricB,
+            avgForceEccentricA = summary.avgForceEccentricA,
+            avgForceEccentricB = summary.avgForceEccentricB,
+            heaviestLiftKg = summary.heaviestLiftKgPerCable,
+            totalVolumeKg = summary.totalVolumeKg,
+            estimatedCalories = summary.estimatedCalories,
+            warmupAvgWeightKg = if (isEchoMode) summary.warmupAvgWeightKg else null,
+            workingAvgWeightKg = if (isEchoMode) summary.workingAvgWeightKg else null,
+            burnoutAvgWeightKg = if (isEchoMode) summary.burnoutAvgWeightKg else null,
+            peakWeightKg = if (isEchoMode) summary.peakWeightKg else null,
+            rpe = _currentSetRpe.value
         )
 
         workoutRepository.saveSession(session)
