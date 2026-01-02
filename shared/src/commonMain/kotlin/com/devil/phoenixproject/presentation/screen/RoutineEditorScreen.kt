@@ -199,41 +199,25 @@ fun RoutineEditorScreen(
         updateExercises(updatedExercises)
     }
 
-    // Reorderable state for drag-and-drop
+    // Reorderable state for drag-and-drop on flat list
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val routine = state.routine ?: return@rememberReorderableLazyListState
-        val items = routine.getItems().toMutableList()
+        val flatItems = routine.flattenWithConnectors().toMutableList()
         val fromIndex = from.index
         val toIndex = to.index
 
-        if (fromIndex in items.indices && toIndex in items.indices) {
-            val moved = items.removeAt(fromIndex)
-            items.add(toIndex, moved)
+        if (fromIndex in flatItems.indices && toIndex in flatItems.indices) {
+            // Move in flat list
+            val moved = flatItems.removeAt(fromIndex)
+            flatItems.add(toIndex, moved)
 
-            // Rebuild exercises and supersets with updated order indices
-            var exerciseOrder = 0
-            var supersetOrder = 0
-            val newExercises = mutableListOf<RoutineExercise>()
-            val newSupersets = mutableListOf<Superset>()
-
-            items.forEachIndexed { index, item ->
-                when (item) {
-                    is RoutineItem.Single -> {
-                        newExercises.add(item.exercise.copy(orderIndex = index))
-                        exerciseOrder++
-                    }
-                    is RoutineItem.SupersetItem -> {
-                        newSupersets.add(item.superset.copy(orderIndex = index))
-                        // Keep superset exercises with their original orderInSuperset
-                        item.superset.exercises.forEach { ex ->
-                            newExercises.add(ex.copy(orderIndex = index))
-                        }
-                        supersetOrder++
-                    }
-                }
+            // Rebuild exercises with new order
+            val newExercises = flatItems.mapIndexed { index, item ->
+                item.exercise.copy(orderIndex = index)
             }
 
-            updateRoutine { it.copy(exercises = newExercises, supersets = newSupersets) }
+            // Preserve existing supersetId - exercises stay in their supersets
+            updateRoutine { it.copy(exercises = newExercises) }
         }
     }
 
