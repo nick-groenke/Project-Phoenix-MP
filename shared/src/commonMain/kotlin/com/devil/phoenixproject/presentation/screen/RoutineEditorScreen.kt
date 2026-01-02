@@ -148,6 +148,50 @@ fun RoutineEditorScreen(
         updateRoutine { it.copy(exercises = updatedExercises, supersets = updatedSupersets) }
     }
 
+    // Helper: Create superset with next exercise
+    fun createSupersetWithNext(exerciseId: String) {
+        val routine = state.routine ?: return
+        val exercises = routine.exercises
+        val currentIndex = exercises.indexOfFirst { it.id == exerciseId }
+
+        if (currentIndex < 0 || currentIndex >= exercises.lastIndex) return // No next exercise
+
+        val current = exercises[currentIndex]
+        val next = exercises[currentIndex + 1]
+
+        // Skip if either already in a superset
+        if (current.supersetId != null || next.supersetId != null) return
+
+        val newSupersetId = generateSupersetId()
+        val existingColors = routine.supersets.map { it.colorIndex }.toSet()
+        val newColor = SupersetColors.next(existingColors)
+
+        // Create new superset
+        val newSuperset = Superset(
+            id = newSupersetId,
+            routineId = routine.id,
+            name = "Superset",
+            colorIndex = newColor,
+            orderIndex = current.orderIndex
+        )
+
+        // Update both exercises
+        val updatedExercises = exercises.map { ex ->
+            when (ex.id) {
+                current.id -> ex.copy(supersetId = newSupersetId, orderInSuperset = 0)
+                next.id -> ex.copy(supersetId = newSupersetId, orderInSuperset = 1)
+                else -> ex
+            }
+        }
+
+        updateRoutine {
+            it.copy(
+                exercises = updatedExercises,
+                supersets = routine.supersets + newSuperset
+            )
+        }
+    }
+
     // Reorderable state for drag-and-drop
     val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
         val routine = state.routine ?: return@rememberReorderableLazyListState
@@ -307,6 +351,26 @@ fun RoutineEditorScreen(
                                     },
                                     leadingIcon = { Icon(Icons.Default.Edit, null) }
                                 )
+
+                                // Only show "Create Superset" if there's a next exercise and neither is in a superset
+                                val currentIndex = state.exercises.indexOfFirst { it.id == routineItem.exercise.id }
+                                val hasNext = currentIndex >= 0 && currentIndex < state.exercises.lastIndex
+                                val nextExercise = if (hasNext) state.exercises[currentIndex + 1] else null
+                                val canSuperset = hasNext &&
+                                    routineItem.exercise.supersetId == null &&
+                                    nextExercise?.supersetId == null
+
+                                if (canSuperset) {
+                                    DropdownMenuItem(
+                                        text = { Text("Create Superset") },
+                                        onClick = {
+                                            createSupersetWithNext(routineItem.exercise.id)
+                                            exerciseMenuFor = null
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Link, null) }
+                                    )
+                                }
+
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     onClick = {
