@@ -560,13 +560,14 @@ class MainViewModel constructor(
                     }
                     is ConnectionState.Disconnected, is ConnectionState.Error -> {
                         // Only trigger alert if we were previously connected
-                        // and a workout is in progress
+                        // and a workout is actively in progress (not in summary)
+                        // SetSummary is excluded since the summary screen doesn't need connection
+                        // and users need to interact with it to save workout history
                         if (wasConnected) {
                             val workoutActive = when (_workoutState.value) {
                                 is WorkoutState.Active,
                                 is WorkoutState.Countdown,
-                                is WorkoutState.Resting,
-                                is WorkoutState.SetSummary -> true
+                                is WorkoutState.Resting -> true
                                 else -> false
                             }
                             if (workoutActive) {

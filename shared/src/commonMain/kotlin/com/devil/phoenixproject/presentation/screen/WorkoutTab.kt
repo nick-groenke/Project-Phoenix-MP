@@ -322,10 +322,11 @@ fun WorkoutTab(
             }
 
             // Show "Workout Paused" card when connection is lost during an active workout (Issue #42)
+            // Note: SetSummary is excluded because the summary screen doesn't need connection
+            // and should remain fully visible to show workout results and save to history
             val isWorkoutInProgress = workoutState is WorkoutState.Active ||
                 workoutState is WorkoutState.Countdown ||
-                workoutState is WorkoutState.Resting ||
-                workoutState is WorkoutState.SetSummary
+                workoutState is WorkoutState.Resting
             val isDisconnected = connectionState is ConnectionState.Disconnected ||
                 connectionState is ConnectionState.Error
 
