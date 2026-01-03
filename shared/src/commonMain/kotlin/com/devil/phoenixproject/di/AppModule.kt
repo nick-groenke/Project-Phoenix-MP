@@ -53,7 +53,7 @@ val commonModule = module {
     single { MigrationManager() }
     
     // ViewModels
-    factory { MainViewModel(get(), get(), get(), get(), get(), get(), get()) }
+    factory { MainViewModel(get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { ConnectionLogsViewModel() }
     factory { GamificationViewModel(get()) }
     // ThemeViewModel as singleton - app-wide theme state that must persist

@@ -321,6 +321,23 @@ fun WorkoutTab(
 //                }
             }
 
+            // Show "Workout Paused" card when connection is lost during an active workout (Issue #42)
+            // Note: SetSummary is excluded because the summary screen doesn't need connection
+            // and should remain fully visible to show workout results and save to history
+            val isWorkoutInProgress = workoutState is WorkoutState.Active ||
+                workoutState is WorkoutState.Countdown ||
+                workoutState is WorkoutState.Resting
+            val isDisconnected = connectionState is ConnectionState.Disconnected ||
+                connectionState is ConnectionState.Error
+
+            if (isWorkoutInProgress && isDisconnected) {
+                WorkoutPausedCard(
+                    onScan = onScan,
+                    workoutState = workoutState,
+                    repCount = repCount
+                )
+            }
+
             // OVERLAYS - These float on top of all content
             when (workoutState) {
                 is WorkoutState.Countdown -> {
@@ -544,6 +561,89 @@ private fun ErrorCard(message: String) {
                 color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
             )
+        }
+    }
+}
+
+/**
+ * Workout Paused Card - shown when connection is lost during an active workout (Issue #42)
+ * Displays workout progress and prompts user to reconnect
+ */
+@Composable
+private fun WorkoutPausedCard(
+    onScan: () -> Unit,
+    workoutState: WorkoutState,
+    repCount: RepCount
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.medium),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Spacing.small)
+        ) {
+            Icon(
+                Icons.Default.BluetoothDisabled,
+                contentDescription = "Connection lost",
+                tint = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier.size(48.dp)
+            )
+            Text(
+                "Workout Paused",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Connection to trainer lost",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(Spacing.small))
+
+            // Show workout progress info
+            val progressText = when {
+                repCount.workingReps > 0 -> "Progress: ${repCount.workingReps} reps completed"
+                repCount.warmupReps > 0 -> "Progress: ${repCount.warmupReps} warmup reps"
+                else -> "Workout was in progress"
+            }
+            Text(
+                progressText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
+                textAlign = TextAlign.Center
+            )
+            Text(
+                "Reconnect to continue your session",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(Spacing.medium))
+
+            Button(
+                onClick = onScan,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
+                )
+            ) {
+                Icon(
+                    Icons.Default.Bluetooth,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(Spacing.small))
+                Text("Reconnect", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -1312,7 +1412,9 @@ fun SetSummaryCard(
     formatWeight: (Float, WeightUnit) -> String,
     onContinue: () -> Unit,
     autoplayEnabled: Boolean,
-    onRpeLogged: ((Int) -> Unit)? = null  // Optional RPE callback
+    onRpeLogged: ((Int) -> Unit)? = null,  // Optional RPE callback
+    isHistoryView: Boolean = false,  // Hide interactive elements when viewing from history
+    savedRpe: Int? = null  // Show saved RPE value in history view
 ) {
     // State for RPE tracking
     var loggedRpe by remember { mutableStateOf<Int?>(null) }
@@ -1483,8 +1585,38 @@ fun SetSummaryCard(
                 )
             }
 
-            // RPE Capture (optional) - shown if callback is provided
-            if (onRpeLogged != null) {
+            // RPE section - show read-only in history view, interactive in live view
+            if (isHistoryView && savedRpe != null) {
+                // Show saved RPE as read-only
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "RPE",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "$savedRpe/10",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            } else if (!isHistoryView && onRpeLogged != null) {
+                // RPE Capture (optional) - shown if callback is provided in live view
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -1524,27 +1656,29 @@ fun SetSummaryCard(
             }
         }
 
-        // Done/Continue button
-        Button(
-            onClick = onContinue,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary
-            )
-        ) {
-            Text(
-                text = if (autoplayEnabled && autoCountdown > 0) {
-                    "Done ($autoCountdown)"
-                } else {
-                    "Done"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
+        // Done/Continue button - only show in live view
+        if (!isHistoryView) {
+            Button(
+                onClick = onContinue,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text(
+                    text = if (autoplayEnabled && autoCountdown > 0) {
+                        "Done ($autoCountdown)"
+                    } else {
+                        "Done"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
         }
     }
 }
@@ -2580,4 +2714,28 @@ private fun Float.pow(n: Int): Float {
     var result = 1f
     repeat(n) { result *= this }
     return result
+}
+
+/**
+ * Format reps for display in workout completion card.
+ * Handles AMRAP (null reps), uniform reps, and varied reps.
+ */
+private fun formatReps(setReps: List<Int?>): String {
+    if (setReps.isEmpty()) return "AMRAP - As Many Reps As Possible"
+
+    val nonNullReps = setReps.filterNotNull()
+    return when {
+        nonNullReps.isEmpty() -> "${setReps.size} sets AMRAP"
+        nonNullReps.size == setReps.size && nonNullReps.distinct().size == 1 ->
+            "${setReps.size} sets x ${nonNullReps.first()} reps"
+        else -> {
+            val min = nonNullReps.minOrNull() ?: 0
+            val max = nonNullReps.maxOrNull() ?: 0
+            if (min != max) {
+                "${setReps.size} sets x $min-$max reps"
+            } else {
+                "${setReps.size} sets x $min reps"
+            }
+        }
+    }
 }

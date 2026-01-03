@@ -537,17 +537,20 @@ private fun AltActiveStateDashboard(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // Echo uses heuristic, normal uses config or live total/2
-                    val perCableKg = if (workoutParameters.workoutType is WorkoutType.Echo && currentHeuristicKgMax > 0) {
+                    val isEchoMode = workoutParameters.workoutType is WorkoutType.Echo
+                    val perCableKg = if (isEchoMode && currentHeuristicKgMax > 0) {
                         currentHeuristicKgMax
                     } else {
                         (currentMetric?.totalLoad ?: 0f) / 2f
                     }
+                    // For Echo mode: show "—" when force data isn't available yet (Issue #52)
+                    val loadLabel = if (isEchoMode && perCableKg <= 0f) "—" else formatWeight(perCableKg, weightUnit)
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = formatWeight(perCableKg, weightUnit),
+                            text = loadLabel,
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.secondary

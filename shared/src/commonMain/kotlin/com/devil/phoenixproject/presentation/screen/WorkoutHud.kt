@@ -397,11 +397,19 @@ private fun ExecutionPage(
             val targetWeight = workoutParameters.weightPerCableKg
             val gaugeMax = (targetWeight * 1.5f).coerceAtLeast(20f)
 
+            // For Echo mode: show "—" when force data isn't available yet (Issue #52)
+            // This prevents showing "0 kg" during initial reps before heuristic data populates
+            val forceLabel = if (isEchoMode && perCableKg <= 0f) {
+                "—"
+            } else {
+                formatWeight(perCableKg, weightUnit)
+            }
+
             CircularForceGauge(
                 currentForce = perCableKg,
                 maxForce = gaugeMax,
                 velocity = (metric.velocityA + metric.velocityB) / 2.0,
-                label = formatWeight(perCableKg, weightUnit),
+                label = forceLabel,
                 subLabel = "PER CABLE",
                 modifier = Modifier.size(200.dp)
             )

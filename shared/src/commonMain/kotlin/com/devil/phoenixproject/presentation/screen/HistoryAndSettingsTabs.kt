@@ -1,5 +1,8 @@
 package com.devil.phoenixproject.presentation.screen
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -12,7 +15,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.domain.model.WeightUnit
 import com.devil.phoenixproject.domain.model.WorkoutSession
+import com.devil.phoenixproject.domain.model.toSetSummary
 import com.devil.phoenixproject.presentation.viewmodel.HistoryItem
 import com.devil.phoenixproject.util.ColorScheme
 import com.devil.phoenixproject.util.ColorSchemes
@@ -48,6 +51,7 @@ fun HistoryTab(
     groupedWorkoutHistory: List<HistoryItem>,
     weightUnit: WeightUnit,
     formatWeight: (Float, WeightUnit) -> String,
+    kgToDisplay: (Float, WeightUnit) -> Float,
     onDeleteWorkout: (String) -> Unit,
     exerciseRepository: ExerciseRepository,
     onRefresh: () -> Unit = {},
@@ -124,6 +128,7 @@ fun HistoryTab(
                                 session = item.session,
                                 weightUnit = weightUnit,
                                 formatWeight = formatWeight,
+                                kgToDisplay = kgToDisplay,
                                 exerciseRepository = exerciseRepository,
                                 onDelete = { onDeleteWorkout(item.session.id) }
                             )
@@ -133,6 +138,7 @@ fun HistoryTab(
                                 groupedItem = item,
                                 weightUnit = weightUnit,
                                 formatWeight = formatWeight,
+                                kgToDisplay = kgToDisplay,
                                 exerciseRepository = exerciseRepository,
                                 onDelete = { sessionId -> onDeleteWorkout(sessionId) }
                             )
@@ -150,28 +156,27 @@ fun WorkoutHistoryCard(
     session: WorkoutSession,
     weightUnit: WeightUnit,
     formatWeight: (Float, WeightUnit) -> String,
+    kgToDisplay: (Float, WeightUnit) -> Float,
     exerciseRepository: com.devil.phoenixproject.data.repository.ExerciseRepository,
     onDelete: () -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f, // Material 3 Expressive: More scale (was 0.98f)
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy, // Material 3 Expressive: More bouncy (was MediumBouncy)
-            stiffness = Spring.StiffnessLow // Material 3 Expressive: Springy feel (was 400f)
-        ),
-        label = "scale"
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Chevron rotation animation
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = tween(300),
+        label = "chevron"
     )
 
     // Get exercise name from session (no DB lookup needed!)
     val exerciseName = session.exerciseName ?: if (session.isJustLift) "Just Lift" else "Unknown Exercise"
 
     Card(
-        onClick = { isPressed = true },
+        onClick = { isExpanded = !isExpanded },
         modifier = Modifier
             .fillMaxWidth()
-            .scale(scale)
             .shadow(8.dp, RoundedCornerShape(20.dp)), // Material 3 Expressive: More shadow, more rounded
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest), // Material 3 Expressive: Higher contrast
         shape = RoundedCornerShape(20.dp), // Material 3 Expressive: More rounded (was 16dp)
@@ -183,13 +188,25 @@ fun WorkoutHistoryCard(
                 .fillMaxWidth()
                 .padding(Spacing.medium)
         ) {
-            // Header: "Single Exercise"
-            Text(
-                "Single Exercise",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+            // Header: "Single Exercise" with chevron
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Single Exercise",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    modifier = Modifier.rotate(chevronRotation),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             Spacer(modifier = Modifier.height(Spacing.small))
 
@@ -291,6 +308,66 @@ fun WorkoutHistoryCard(
                 )
             }
 
+            // Expandable summary section
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier.padding(top = Spacing.medium)
+                ) {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.medium))
+
+                    val summary = session.toSetSummary()
+                    if (summary != null) {
+                        SetSummaryCard(
+                            summary = summary,
+                            workoutMode = session.mode,
+                            weightUnit = weightUnit,
+                            kgToDisplay = kgToDisplay,
+                            formatWeight = formatWeight,
+                            onContinue = { },
+                            autoplayEnabled = false,
+                            isHistoryView = true,
+                            savedRpe = session.rpe
+                        )
+                    } else {
+                        // Pre-v0.2.1 session - show message
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(Spacing.medium),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.small))
+                                Text(
+                                    "Detailed metrics available for workouts after v0.2.1",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(Spacing.small))
 
             // Divider
@@ -383,13 +460,6 @@ fun WorkoutHistoryCard(
             }
         )
     }
-
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            kotlinx.coroutines.delay(100)
-            isPressed = false
-        }
-    }
 }
 
 /**
@@ -413,18 +483,18 @@ fun GroupedRoutineCard(
     groupedItem: com.devil.phoenixproject.presentation.viewmodel.GroupedRoutineHistoryItem,
     weightUnit: WeightUnit,
     formatWeight: (Float, WeightUnit) -> String,
+    kgToDisplay: (Float, WeightUnit) -> Float,
     exerciseRepository: com.devil.phoenixproject.data.repository.ExerciseRepository,
     onDelete: (String) -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
-    var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f, // Material 3 Expressive: More scale (was 0.98f)
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioLowBouncy, // Material 3 Expressive: More bouncy (was MediumBouncy)
-            stiffness = Spring.StiffnessLow // Material 3 Expressive: Springy feel (was 400f)
-        ),
-        label = "scale"
+    var isExpanded by remember { mutableStateOf(false) }
+
+    // Chevron rotation animation
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = tween(300),
+        label = "chevron"
     )
 
     // Group sessions by exerciseId and use exerciseName directly (no DB lookup needed!)
@@ -450,10 +520,9 @@ fun GroupedRoutineCard(
     }
 
     Card(
-        onClick = { isPressed = true },
+        onClick = { isExpanded = !isExpanded },
         modifier = Modifier
             .fillMaxWidth()
-            .scale(scale)
             .shadow(8.dp, RoundedCornerShape(20.dp)), // Material 3 Expressive: More shadow, more rounded
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest), // Material 3 Expressive: Higher contrast
         shape = RoundedCornerShape(20.dp), // Material 3 Expressive: More rounded (was 16dp)
@@ -465,13 +534,25 @@ fun GroupedRoutineCard(
                 .fillMaxWidth()
                 .padding(Spacing.medium)
         ) {
-            // Header: "Daily Routine"
-            Text(
-                "Daily Routine",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
-            )
+            // Header: "Daily Routine" with chevron
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Daily Routine",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    modifier = Modifier.rotate(chevronRotation),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
 
             Spacer(modifier = Modifier.height(Spacing.small))
 
@@ -601,6 +682,75 @@ fun GroupedRoutineCard(
                 }
             }
 
+            // Expandable summary section
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(modifier = Modifier.padding(top = Spacing.medium)) {
+                    HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(Spacing.medium))
+
+                    Text(
+                        "Detailed Set Metrics",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.small))
+
+                    groupedItem.sessions.forEachIndexed { index, session ->
+                        val summary = session.toSetSummary()
+
+                        Text(
+                            session.exerciseName ?: "Unknown Exercise",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.small))
+
+                        if (summary != null) {
+                            SetSummaryCard(
+                                summary = summary,
+                                workoutMode = session.mode,
+                                weightUnit = weightUnit,
+                                kgToDisplay = kgToDisplay,
+                                formatWeight = formatWeight,
+                                onContinue = { },
+                                autoplayEnabled = false,
+                                isHistoryView = true,
+                                savedRpe = session.rpe
+                            )
+                        } else {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(Spacing.medium),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.width(Spacing.small))
+                                    Text(
+                                        "Detailed metrics available for workouts after v0.2.1",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        if (index < groupedItem.sessions.size - 1) {
+                            Spacer(modifier = Modifier.height(Spacing.medium))
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(Spacing.small))
 
             // Divider
@@ -695,13 +845,6 @@ fun GroupedRoutineCard(
                 }
             }
         )
-    }
-
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            kotlinx.coroutines.delay(100)
-            isPressed = false
-        }
     }
 }
 
@@ -1335,22 +1478,72 @@ fun SettingsTab(
 
             Spacer(modifier = Modifier.height(Spacing.medium))
 
-            // Compact horizontal scrollable color chips
+            // Color scheme slider with preview
             val colorSchemes = ColorSchemes.ALL
-            Row(
+            val currentScheme = colorSchemes.getOrElse(selectedColorSchemeIndex) { colorSchemes.first() }
+            val isNoneScheme = currentScheme.name == "None"
+
+            // Convert RGB colors to Compose Color for preview
+            val previewColors = if (isNoneScheme) {
+                listOf(Color.DarkGray, Color.Gray, Color.DarkGray)
+            } else {
+                currentScheme.colors.map { Color(it.r, it.g, it.b) }
+            }
+
+            // Color preview box with current scheme name
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.small)
+                    .height(56.dp)
+                    .shadow(4.dp, RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.horizontalGradient(previewColors),
+                        RoundedCornerShape(12.dp)
+                    ),
+                contentAlignment = Alignment.Center
             ) {
-                colorSchemes.forEachIndexed { index, scheme ->
-                    ColorSchemeChip(
-                        scheme = scheme,
-                        isSelected = index == selectedColorSchemeIndex,
-                        onClick = { onColorSchemeChange(index) }
-                    )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isNoneScheme) {
+                            Icon(
+                                imageVector = Icons.Default.PowerSettingsNew,
+                                contentDescription = "LEDs Off",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = currentScheme.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(Spacing.medium))
+
+            // Slider for color selection
+            Slider(
+                value = selectedColorSchemeIndex.toFloat(),
+                onValueChange = { onColorSchemeChange(it.toInt()) },
+                valueRange = 0f..(colorSchemes.size - 1).toFloat(),
+                steps = colorSchemes.size - 2, // steps = divisions - 1
+                modifier = Modifier.fillMaxWidth(),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            )
 
             // Disco mode toggle (only visible when unlocked)
             if (discoModeUnlocked) {
@@ -1461,7 +1654,7 @@ fun SettingsTab(
                     Spacer(modifier = Modifier.width(Spacing.small))
                     Text(
                         "Delete All Workouts",
-                        style = MaterialTheme.typography.titleLarge, // Material 3 Expressive: Larger text
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1532,7 +1725,7 @@ fun SettingsTab(
                 Spacer(modifier = Modifier.width(Spacing.small))
                 Text(
                     "View Badges & Streaks",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -1610,7 +1803,7 @@ fun SettingsTab(
                     Spacer(modifier = Modifier.width(Spacing.small))
                     Text(
                         "Connection Logs",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1643,7 +1836,7 @@ fun SettingsTab(
                     Spacer(modifier = Modifier.width(Spacing.small))
                     Text(
                         "Test Sounds",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -1966,127 +2159,3 @@ private fun formatDuration(millis: Long): String {
     return "$minutes:${seconds.toString().padStart(2, '0')}"
 }
 
-/**
- * Compact color scheme chip with visual preview
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ColorSchemeChip(
-    scheme: ColorScheme,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    var isPressed by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.9f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "scale"
-    )
-
-    // Check if this is the "None" color scheme (turns off LEDs)
-    val isNoneScheme = scheme.name == "None"
-
-    // Convert RGB colors to Compose Color
-    val composeColors = scheme.colors.map { rgbColor ->
-        Color(rgbColor.r, rgbColor.g, rgbColor.b)
-    }
-
-    // Create gradient from the color scheme
-    // For "None", use a gray gradient to make it visible
-    val gradientColors = if (isNoneScheme) {
-        listOf(Color.DarkGray, Color.Gray, Color.DarkGray)
-    } else if (composeColors.size >= 2) {
-        composeColors
-    } else {
-        listOf(composeColors.firstOrNull() ?: Color.Gray, Color.DarkGray)
-    }
-
-    Surface(
-        onClick = {
-            isPressed = true
-            onClick()
-        },
-        modifier = Modifier
-            .width(80.dp)
-            .height(100.dp)
-            .scale(scale)
-            .shadow(if (isSelected) 8.dp else 4.dp, RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.Transparent,
-        border = BorderStroke(
-            width = if (isSelected) 3.dp else 2.dp,
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-        ),
-        tonalElevation = if (isSelected) 4.dp else 2.dp
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(gradientColors),
-                    RoundedCornerShape(16.dp)
-                )
-                .padding(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Color preview (gradient box) or "Off" icon for None
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .background(
-                        Brush.horizontalGradient(gradientColors),
-                        RoundedCornerShape(8.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isNoneScheme) {
-                    // Show power off icon for "None" scheme
-                    Icon(
-                        imageVector = Icons.Default.PowerSettingsNew,
-                        contentDescription = "LEDs Off",
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-
-            // Color name with background for readability
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(4.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-            ) {
-                Text(
-                    text = scheme.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            }
-
-            // Selected indicator
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Selected",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
-    
-    LaunchedEffect(isPressed) {
-        if (isPressed) {
-            kotlinx.coroutines.delay(100)
-            isPressed = false
-        }
-    }
-}

@@ -1,6 +1,8 @@
 package com.devil.phoenixproject.data.repository
 
 import com.devil.phoenixproject.domain.model.CycleDay
+import com.devil.phoenixproject.domain.model.CycleItem
+import com.devil.phoenixproject.domain.model.CycleProgression
 import com.devil.phoenixproject.domain.model.CycleProgress
 import com.devil.phoenixproject.domain.model.TrainingCycle
 import kotlinx.coroutines.flow.Flow
@@ -113,4 +115,42 @@ interface TrainingCycleRepository {
      * Mark a day as completed (updates last completed date).
      */
     suspend fun markDayCompleted(cycleId: String)
+
+    /**
+     * Update cycle progress with a full CycleProgress object.
+     * Used when using the CycleProgress model methods like markDayCompleted().
+     */
+    suspend fun updateCycleProgress(progress: CycleProgress)
+
+    /**
+     * Check if auto-advance is needed (24+ hours since last advance) and perform it.
+     * If auto-advance is triggered, marks the current day as missed and advances to next day.
+     * @return Current CycleProgress (possibly auto-advanced), or null if no progress exists
+     */
+    suspend fun checkAndAutoAdvance(cycleId: String): CycleProgress?
+
+    // ==================== Cycle Progression ====================
+
+    /**
+     * Get progression settings for a cycle.
+     */
+    suspend fun getCycleProgression(cycleId: String): CycleProgression?
+
+    /**
+     * Save or update progression settings for a cycle.
+     */
+    suspend fun saveCycleProgression(progression: CycleProgression)
+
+    /**
+     * Delete progression settings for a cycle.
+     */
+    suspend fun deleteCycleProgression(cycleId: String)
+
+    // ==================== Cycle Items (UI-facing) ====================
+
+    /**
+     * Get cycle days as CycleItems with routine info.
+     * This is the primary method for the new playlist-style UI.
+     */
+    suspend fun getCycleItems(cycleId: String): List<CycleItem>
 }

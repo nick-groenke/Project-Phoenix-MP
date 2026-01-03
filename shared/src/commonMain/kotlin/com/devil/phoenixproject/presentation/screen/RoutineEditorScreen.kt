@@ -3,12 +3,11 @@ package com.devil.phoenixproject.presentation.screen
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,15 +22,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.data.repository.PersonalRecordRepository
 import com.devil.phoenixproject.domain.model.*
+import com.devil.phoenixproject.presentation.components.ConnectorPosition
 import com.devil.phoenixproject.presentation.components.ExercisePickerDialog
+import com.devil.phoenixproject.presentation.components.ExerciseRowWithConnector
+import com.devil.phoenixproject.ui.theme.SupersetTheme
 import org.koin.compose.koinInject
-import com.devil.phoenixproject.ui.theme.Spacing
-import com.devil.phoenixproject.util.KmpUtils
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -39,10 +38,14 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 // State holder for the editor
 data class RoutineEditorState(
     val routineName: String = "",
-    val exercises: List<RoutineExercise> = emptyList(),
-    val selectedIds: Set<String> = emptySet(),
-    val isSelectionMode: Boolean = false
-)
+    val routine: Routine? = null,
+    val collapsedSupersets: Set<String> = emptySet(),  // Collapsed superset IDs
+    val showAddMenu: Boolean = false
+) {
+    val items: List<RoutineItem> get() = routine?.getItems() ?: emptyList()
+    val exercises: List<RoutineExercise> get() = routine?.exercises ?: emptyList()
+    val supersets: List<Superset> get() = routine?.supersets ?: emptyList()
+}
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -66,6 +69,16 @@ fun RoutineEditorScreen(
     var isNewExercise by remember { mutableStateOf(false) } // true = adding new, false = editing existing
     var editingIndex by remember { mutableStateOf<Int?>(null) } // index when editing existing
 
+    // Menu state for superset and exercise context menus
+    var supersetMenuFor by remember { mutableStateOf<String?>(null) } // superset ID showing menu
+    var exerciseMenuFor by remember { mutableStateOf<String?>(null) } // exercise ID showing menu
+
+    // Dialog state for superset editing
+    var supersetToRename by remember { mutableStateOf<Superset?>(null) }
+    var supersetToEditRest by remember { mutableStateOf<Superset?>(null) }
+    var supersetToChangeColor by remember { mutableStateOf<Superset?>(null) }
+    var supersetToDelete by remember { mutableStateOf<Superset?>(null) } // Delete All confirmation
+
     // Get PersonalRecordRepository for the bottom sheet
     val personalRecordRepository: PersonalRecordRepository = koinInject()
 
@@ -76,245 +89,318 @@ fun RoutineEditorScreen(
             if (existing != null) {
                 state = state.copy(
                     routineName = existing.name,
-                    exercises = existing.exercises.sortedBy { it.orderIndex }
+                    routine = existing
                 )
             }
             hasInitialized = true
         } else if (!hasInitialized) {
-            state = state.copy(routineName = "New Routine")
+            state = state.copy(
+                routineName = "New Routine",
+                routine = Routine(id = "new", name = "New Routine")
+            )
             hasInitialized = true
         }
     }
 
     // Drag and Drop State
     val lazyListState = rememberLazyListState()
-    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val list = state.exercises.toMutableList()
-        val fromIndex = from.index
-        val toIndex = to.index
-        
-        if (fromIndex in list.indices && toIndex in list.indices) {
-            val moved = list.removeAt(fromIndex)
-            list.add(toIndex, moved)
-            // Re-assign order indices immediately
-            state = state.copy(exercises = list.mapIndexed { i, ex -> ex.copy(orderIndex = i) })
+
+    // Helper: Update Routine
+    fun updateRoutine(updateFn: (Routine) -> Routine) {
+        state.routine?.let { current ->
+            state = state.copy(routine = updateFn(current))
         }
     }
 
     // Helper: Update Exercises
     fun updateExercises(newList: List<RoutineExercise>) {
-        state = state.copy(exercises = newList.mapIndexed { i, ex -> ex.copy(orderIndex = i) })
+        updateRoutine { it.copy(exercises = newList.mapIndexed { i, ex -> ex.copy(orderIndex = i) }) }
+    }
+
+    // Helper: Update Superset
+    fun updateSuperset(supersetId: String, updateFn: (Superset) -> Superset) {
+        updateRoutine { routine ->
+            routine.copy(
+                supersets = routine.supersets.map { if (it.id == supersetId) updateFn(it) else it }
+            )
+        }
+    }
+
+    // Helper: Dissolve Superset (remove container, keep exercises as standalone)
+    fun dissolveSuperset(supersetId: String) {
+        val routine = state.routine ?: return
+        val updatedExercises = routine.exercises.map { ex ->
+            if (ex.supersetId == supersetId) ex.copy(supersetId = null, orderInSuperset = 0)
+            else ex
+        }
+        val updatedSupersets = routine.supersets.filter { it.id != supersetId }
+        updateRoutine { it.copy(exercises = updatedExercises, supersets = updatedSupersets) }
+    }
+
+    // Helper: Delete Superset with all exercises
+    fun deleteSupersetWithExercises(supersetId: String) {
+        val routine = state.routine ?: return
+        val updatedExercises = routine.exercises.filter { it.supersetId != supersetId }
+        val updatedSupersets = routine.supersets.filter { it.id != supersetId }
+        updateRoutine { it.copy(exercises = updatedExercises, supersets = updatedSupersets) }
+    }
+
+    // Helper: Create superset with next exercise
+    fun createSupersetWithNext(exerciseId: String) {
+        val routine = state.routine ?: return
+        val exercises = routine.exercises
+        val currentIndex = exercises.indexOfFirst { it.id == exerciseId }
+
+        if (currentIndex < 0 || currentIndex >= exercises.lastIndex) return // No next exercise
+
+        val current = exercises[currentIndex]
+        val next = exercises[currentIndex + 1]
+
+        // Skip if either already in a superset
+        if (current.supersetId != null || next.supersetId != null) return
+
+        val newSupersetId = generateSupersetId()
+        val existingColors = routine.supersets.map { it.colorIndex }.toSet()
+        val newColor = SupersetColors.next(existingColors)
+
+        // Create new superset
+        val newSuperset = Superset(
+            id = newSupersetId,
+            routineId = routine.id,
+            name = "Superset",
+            colorIndex = newColor,
+            orderIndex = current.orderIndex
+        )
+
+        // Update both exercises
+        val updatedExercises = exercises.map { ex ->
+            when (ex.id) {
+                current.id -> ex.copy(supersetId = newSupersetId, orderInSuperset = 0)
+                next.id -> ex.copy(supersetId = newSupersetId, orderInSuperset = 1)
+                else -> ex
+            }
+        }
+
+        updateRoutine {
+            it.copy(
+                exercises = updatedExercises,
+                supersets = routine.supersets + newSuperset
+            )
+        }
+    }
+
+    // Helper: Unlink exercise from superset (make it standalone)
+    fun unlinkFromSuperset(exerciseId: String) {
+        val updatedExercises = state.exercises.map { ex ->
+            if (ex.id == exerciseId) {
+                ex.copy(supersetId = null, orderInSuperset = 0)
+            } else ex
+        }
+        updateExercises(updatedExercises)
+    }
+
+    // Reorderable state for drag-and-drop on flat list
+    val reorderState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        val routine = state.routine ?: return@rememberReorderableLazyListState
+        val flatItems = routine.flattenWithConnectors().toMutableList()
+        val fromIndex = from.index
+        val toIndex = to.index
+
+        if (fromIndex in flatItems.indices && toIndex in flatItems.indices) {
+            // Move in flat list
+            val moved = flatItems.removeAt(fromIndex)
+            flatItems.add(toIndex, moved)
+
+            // Rebuild exercises with new order
+            val newExercises = flatItems.mapIndexed { index, item ->
+                item.exercise.copy(orderIndex = index)
+            }
+
+            // Preserve existing supersetId - exercises stay in their supersets
+            updateRoutine { it.copy(exercises = newExercises) }
+        }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    if (state.isSelectionMode) {
-                        Text("${state.selectedIds.size} Selected", style = MaterialTheme.typography.titleMedium)
-                    } else {
-                        TextField(
-                            value = state.routineName,
-                            onValueChange = { state = state.copy(routineName = it) },
-                            placeholder = { Text("Routine Name") },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            singleLine = true
-                        )
-                    }
+                    TextField(
+                        value = state.routineName,
+                        onValueChange = { state = state.copy(routineName = it) },
+                        placeholder = { Text("Routine Name") },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        textStyle = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        singleLine = true
+                    )
                 },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        if (state.isSelectionMode) {
-                            state = state.copy(isSelectionMode = false, selectedIds = emptySet())
-                        } else {
-                            navController.popBackStack()
-                        }
-                    }) {
-                        Icon(
-                            if (state.isSelectionMode) Icons.Default.Close else Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
-                    if (!state.isSelectionMode) {
-                        TextButton(
-                            onClick = {
-                                val routineToSave = Routine(
-                                    id = if (routineId == "new") generateUUID() else routineId,
-                                    name = state.routineName.ifBlank { "Unnamed Routine" },
-                                    exercises = state.exercises,
-                                    createdAt = KmpUtils.currentTimeMillis() // Preserve original date in real app
-                                )
-                                viewModel.saveRoutine(routineToSave)
-                                navController.popBackStack()
-                            }
-                        ) {
-                            Text("Save", fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = {
+                            val routineToSave = state.routine?.copy(
+                                id = if (routineId == "new") generateUUID() else routineId,
+                                name = state.routineName.ifBlank { "Unnamed Routine" }
+                            ) ?: Routine(
+                                id = generateUUID(),
+                                name = state.routineName.ifBlank { "Unnamed Routine" }
+                            )
+                            viewModel.saveRoutine(routineToSave)
+                            navController.popBackStack()
                         }
-                    } else {
-                        // Contextual Actions
-                        if (state.selectedIds.isNotEmpty()) {
-                            // Delete Action
-                            IconButton(onClick = {
-                                val remaining = state.exercises.filterNot { it.id in state.selectedIds }
-                                updateExercises(remaining)
-                                state = state.copy(isSelectionMode = false, selectedIds = emptySet())
-                            }) {
-                                Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
+                    ) {
+                        Text("Save", fontWeight = FontWeight.Bold)
                     }
                 }
             )
         },
-        bottomBar = {
-            // SUPERSET ACTION BAR
-            AnimatedVisibility(
-                visible = state.isSelectionMode,
-                enter = slideInVertically { it },
-                exit = slideOutVertically { it }
-            ) {
-                BottomAppBar {
-                    val selectedCount = state.selectedIds.size
-                    // Group Button
-                    if (selectedCount >= 2) {
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = {
-                                val newGroupId = generateSupersetGroupId()
-                                // Find the earliest index to keep them together if desired, 
-                                // or just group them in place. Grouping usually implies adjacency.
-                                // For MVP, we just assign the ID.
-                                val newExercises = state.exercises.map {
-                                    if (it.id in state.selectedIds) it.copy(supersetGroupId = newGroupId) else it
-                                }
-                                updateExercises(newExercises)
-                                state = state.copy(isSelectionMode = false, selectedIds = emptySet())
-                            },
-                            icon = { Icon(Icons.Default.Link, null) },
-                            label = { Text("Group") }
-                        )
-                    }
-                    
-                    // Ungroup Button
-                    val canUngroup = state.exercises.any { it.id in state.selectedIds && it.supersetGroupId != null }
-                    if (canUngroup) {
-                        NavigationBarItem(
-                            selected = false,
-                            onClick = {
-                                val newExercises = state.exercises.map {
-                                    if (it.id in state.selectedIds) it.copy(supersetGroupId = null) else it
-                                }
-                                updateExercises(newExercises)
-                                state = state.copy(isSelectionMode = false, selectedIds = emptySet())
-                            },
-                            icon = { Icon(Icons.Default.LinkOff, null) },
-                            label = { Text("Ungroup") }
-                        )
-                    }
-                }
-            }
-        },
         floatingActionButton = {
-            if (!state.isSelectionMode) {
-                ExtendedFloatingActionButton(
-                    onClick = { showExercisePicker = true },
-                    icon = { Icon(Icons.Default.Add, null) },
-                    text = { Text("Add Exercise") },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            }
+            ExtendedFloatingActionButton(
+                onClick = { showExercisePicker = true },
+                icon = { Icon(Icons.Default.Add, null) },
+                text = { Text("Add Exercise") },
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            )
         }
     ) { padding ->
-        // THE LIST
         LazyColumn(
             state = lazyListState,
-            contentPadding = PaddingValues(bottom = 100.dp, top = padding.calculateTopPadding()),
+            contentPadding = PaddingValues(
+                bottom = 100.dp,
+                top = padding.calculateTopPadding(),
+                start = 16.dp,
+                end = 16.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(4.dp), // Tighter spacing for connected items
             modifier = Modifier.fillMaxSize()
         ) {
-            itemsIndexed(state.exercises, key = { _, item -> item.id }) { index, exercise ->
-                // Visual Logic for Supersets
-                val currentGroup = exercise.supersetGroupId
-                val prevGroup = state.exercises.getOrNull(index - 1)?.supersetGroupId
-                val nextGroup = state.exercises.getOrNull(index + 1)?.supersetGroupId
-                
-                val isSupersetStart = currentGroup != null && currentGroup != prevGroup
-                val isSupersetEnd = currentGroup != null && currentGroup != nextGroup
-                
-                ReorderableItem(
-                    state = reorderState,
-                    key = exercise.id
-                ) { isDragging ->
-                    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp)
-                    
-                    DraggableExerciseCard(
-                        exercise = exercise,
-                        index = index + 1,
-                        isSelected = exercise.id in state.selectedIds,
-                        isSelectionMode = state.isSelectionMode,
-                        supersetState = when {
-                            currentGroup == null -> SupersetState.None
-                            isSupersetStart && isSupersetEnd -> SupersetState.Single
-                            isSupersetStart -> SupersetState.Top
-                            isSupersetEnd -> SupersetState.Bottom
-                            else -> SupersetState.Middle
-                        },
-                        elevation = elevation,
-                        weightUnit = weightUnit,
-                        kgToDisplay = kgToDisplay,
-                        onToggleSelection = {
-                            val newIds = if (exercise.id in state.selectedIds) {
-                                state.selectedIds - exercise.id
-                            } else {
-                                state.selectedIds + exercise.id
-                            }
-                            state = state.copy(
-                                selectedIds = newIds,
-                                isSelectionMode = newIds.isNotEmpty()
-                            )
-                        },
-                        onEdit = {
-                            exerciseToConfig = exercise
-                            isNewExercise = false
-                            editingIndex = index
-                        },
-                        dragModifier = Modifier.draggableHandle(
-                            interactionSource = remember { MutableInteractionSource() }
+            val flatItems = state.routine?.flattenWithConnectors() ?: emptyList()
+
+            if (flatItems.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(top = 100.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Tap + to add your first exercise",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    )
+                    }
                 }
             }
-            
-            if (state.exercises.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(top = 100.dp), contentAlignment = Alignment.Center) {
-                        Text("Tap + to add your first exercise", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            flatItems.forEachIndexed { index, flatItem ->
+                item(key = flatItem.exercise.id) {
+                    ReorderableItem(
+                        state = reorderState,
+                        key = flatItem.exercise.id
+                    ) { isDragging ->
+                        val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp)
+
+                        Box {
+                            ExerciseRowWithConnector(
+                                exercise = flatItem.exercise,
+                                elevation = elevation,
+                                weightUnit = weightUnit,
+                                kgToDisplay = kgToDisplay,
+                                supersetColorIndex = flatItem.supersetColorIndex,
+                                connectorPosition = flatItem.connectorPosition,
+                                onClick = {
+                                    exerciseToConfig = flatItem.exercise
+                                    isNewExercise = false
+                                    editingIndex = state.exercises.indexOf(flatItem.exercise)
+                                },
+                                onMenuClick = {
+                                    exerciseMenuFor = flatItem.exercise.id
+                                },
+                                dragModifier = Modifier.draggableHandle(
+                                    interactionSource = remember { MutableInteractionSource() }
+                                )
+                            )
+
+                            // Context menu (placeholder - will be refactored in Task 12)
+                            DropdownMenu(
+                                expanded = exerciseMenuFor == flatItem.exercise.id,
+                                onDismissRequest = { exerciseMenuFor = null }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit") },
+                                    onClick = {
+                                        exerciseToConfig = flatItem.exercise
+                                        isNewExercise = false
+                                        editingIndex = state.exercises.indexOf(flatItem.exercise)
+                                        exerciseMenuFor = null
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Edit, null) }
+                                )
+
+                                // Show "Create Superset" or "Unlink" based on superset state
+                                if (flatItem.exercise.supersetId == null) {
+                                    val currentIndex = state.exercises.indexOfFirst { it.id == flatItem.exercise.id }
+                                    val hasNext = currentIndex >= 0 && currentIndex < state.exercises.lastIndex
+                                    val nextExercise = if (hasNext) state.exercises[currentIndex + 1] else null
+                                    val canSuperset = hasNext && nextExercise?.supersetId == null
+
+                                    if (canSuperset) {
+                                        DropdownMenuItem(
+                                            text = { Text("Create Superset") },
+                                            onClick = {
+                                                createSupersetWithNext(flatItem.exercise.id)
+                                                exerciseMenuFor = null
+                                            },
+                                            leadingIcon = { Icon(Icons.Default.Link, null) }
+                                        )
+                                    }
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text("Remove from Superset") },
+                                        onClick = {
+                                            unlinkFromSuperset(flatItem.exercise.id)
+                                            exerciseMenuFor = null
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.LinkOff, null) }
+                                    )
+                                }
+
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        val remaining = state.exercises.filter { it.id != flatItem.exercise.id }
+                                        updateExercises(remaining)
+                                        exerciseMenuFor = null
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Delete, null) }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    // Exercise Picker
+    // Exercise Picker Dialog
     if (showExercisePicker) {
         ExercisePickerDialog(
             showDialog = true,
             onDismiss = { showExercisePicker = false },
             onExerciseSelected = { selectedExercise ->
-                // Create a new RoutineExercise with defaults, then show config sheet
                 val newEx = RoutineExercise(
                     id = generateUUID(),
                     exercise = selectedExercise,
                     cableConfig = selectedExercise.resolveDefaultCableConfig(),
                     orderIndex = state.exercises.size,
-                    weightPerCableKg = 5f // Default - will be configured in bottom sheet
+                    weightPerCableKg = 5f
                 )
                 exerciseToConfig = newEx
                 isNewExercise = true
@@ -326,7 +412,7 @@ fun RoutineEditorScreen(
         )
     }
 
-    // Full Exercise Configuration Bottom Sheet (for both new and edit)
+    // Exercise Configuration Bottom Sheet
     exerciseToConfig?.let { exercise ->
         ExerciseEditBottomSheet(
             exercise = exercise,
@@ -342,10 +428,8 @@ fun RoutineEditorScreen(
             },
             onSave = { configuredExercise ->
                 if (isNewExercise) {
-                    // Adding new exercise
                     updateExercises(state.exercises + configuredExercise)
                 } else {
-                    // Editing existing exercise
                     editingIndex?.let { index ->
                         val newList = state.exercises.toMutableList().apply { set(index, configuredExercise) }
                         updateExercises(newList)
@@ -363,120 +447,209 @@ fun RoutineEditorScreen(
             buttonText = if (isNewExercise) "Add to Routine" else "Save"
         )
     }
-}
 
-enum class SupersetState { None, Top, Middle, Bottom, Single }
-
-@Composable
-fun DraggableExerciseCard(
-    exercise: RoutineExercise,
-    index: Int,
-    isSelected: Boolean,
-    isSelectionMode: Boolean,
-    supersetState: SupersetState,
-    elevation: androidx.compose.ui.unit.Dp,
-    weightUnit: WeightUnit,
-    kgToDisplay: (Float, WeightUnit) -> Float,
-    onToggleSelection: () -> Unit,
-    onEdit: () -> Unit,
-    dragModifier: Modifier
-) {
-    val isSuperset = supersetState != SupersetState.None
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min) // Essential for fillMaxHeight child
-            .padding(horizontal = 16.dp, vertical = if (isSuperset) 0.dp else 4.dp)
-            .shadow(elevation, RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.background)
-            .combinedClickable(
-                onClick = { 
-                    if (isSelectionMode) onToggleSelection() else onEdit() 
-                },
-                onLongClick = {
-                    if (!isSelectionMode) onToggleSelection()
+    // Rename Superset Dialog
+    supersetToRename?.let { superset ->
+        var newName by remember { mutableStateOf(superset.name) }
+        AlertDialog(
+            onDismissRequest = { supersetToRename = null },
+            title = { Text("Rename Superset") },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        updateSuperset(superset.id) { it.copy(name = newName) }
+                        supersetToRename = null
+                    }
+                ) {
+                    Text("Save")
                 }
-            )
-    ) {
-        // 1. Left Rail (Superset / Selection)
-        Box(
-            modifier = Modifier
-                .width(40.dp)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isSelectionMode) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onToggleSelection() },
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else {
-                // Drag Handle
-                Icon(
-                    Icons.Default.DragHandle, 
-                    contentDescription = "Drag",
-                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                    modifier = Modifier.align(Alignment.Center).then(dragModifier)
-                )
-            }
-            
-            // Superset Line
-            if (isSuperset && !isSelectionMode) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(4.dp)
-                        .align(Alignment.CenterEnd)
-                        .padding(vertical = if(supersetState == SupersetState.Top) 4.dp else 0.dp)
-                        .background(
-                            MaterialTheme.colorScheme.tertiary,
-                            shape = when(supersetState) {
-                                SupersetState.Top -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)
-                                SupersetState.Bottom -> RoundedCornerShape(bottomStart = 4.dp, bottomEnd = 4.dp)
-                                else -> androidx.compose.ui.graphics.RectangleShape
-                            }
-                        )
-                )
-            }
-        }
-
-        // 2. Card Content
-        Card(
-            modifier = Modifier.weight(1f).padding(start = 8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
-                               else MaterialTheme.colorScheme.surfaceContainer
-            ),
-            shape = if (isSuperset) {
-                when(supersetState) {
-                    SupersetState.Top -> RoundedCornerShape(topEnd = 12.dp, topStart = 4.dp)
-                    SupersetState.Bottom -> RoundedCornerShape(bottomEnd = 12.dp, bottomStart = 4.dp)
-                    SupersetState.Middle -> RoundedCornerShape(4.dp)
-                    else -> RoundedCornerShape(12.dp)
+            },
+            dismissButton = {
+                TextButton(onClick = { supersetToRename = null }) {
+                    Text("Cancel")
                 }
-            } else RoundedCornerShape(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
+            }
+        )
+    }
+
+    // Rest Time Dialog
+    supersetToEditRest?.let { superset ->
+        var restSeconds by remember { mutableStateOf(superset.restBetweenSeconds) }
+        AlertDialog(
+            onDismissRequest = { supersetToEditRest = null },
+            title = { Text("Rest Between Exercises") },
+            text = {
+                Column {
                     Text(
-                        exercise.exercise.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        "${exercise.sets} sets x ${exercise.reps} reps @ ${kgToDisplay(exercise.weightPerCableKg, weightUnit).toInt()}",
+                        "Rest time between exercises in superset",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        IconButton(
+                            onClick = { if (restSeconds > 5) restSeconds -= 5 }
+                        ) {
+                            Icon(Icons.Default.Remove, "Decrease")
+                        }
+                        Text(
+                            "${restSeconds}s",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                        IconButton(
+                            onClick = { if (restSeconds < 120) restSeconds += 5 }
+                        ) {
+                            Icon(Icons.Default.Add, "Increase")
+                        }
+                    }
                 }
-                
-                // Kebab Menu Removed - Interactions moved to card tap/long-press
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        updateSuperset(superset.id) { it.copy(restBetweenSeconds = restSeconds) }
+                        supersetToEditRest = null
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { supersetToEditRest = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Color Picker Dialog
+    supersetToChangeColor?.let { superset ->
+        AlertDialog(
+            onDismissRequest = { supersetToChangeColor = null },
+            title = { Text("Choose Color") },
+            text = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                ) {
+                    SupersetTheme.colors.forEachIndexed { index, color ->
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .border(
+                                    width = if (superset.colorIndex == index) 3.dp else 0.dp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    shape = CircleShape
+                                )
+                                .clickable {
+                                    updateSuperset(superset.id) { it.copy(colorIndex = index) }
+                                    supersetToChangeColor = null
+                                }
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { supersetToChangeColor = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Delete Superset Confirmation Dialog
+    supersetToDelete?.let { superset ->
+        AlertDialog(
+            onDismissRequest = { supersetToDelete = null },
+            title = { Text("Delete Superset?") },
+            text = {
+                Text(
+                    "This will delete the superset \"${superset.name}\" and all ${superset.exerciseCount} exercises in it. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteSupersetWithExercises(superset.id)
+                        supersetToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Delete All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { supersetToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Represents an exercise in the flat list with its superset position info.
+ */
+data class FlatExerciseItem(
+    val exercise: RoutineExercise,
+    val supersetColorIndex: Int?,
+    val connectorPosition: ConnectorPosition?
+)
+
+/**
+ * Flattens routine into a list of exercises with connector info.
+ * Exercises in supersets are ordered together.
+ */
+fun Routine.flattenWithConnectors(): List<FlatExerciseItem> {
+    val items = getItems()
+    val result = mutableListOf<FlatExerciseItem>()
+
+    for (item in items) {
+        when (item) {
+            is RoutineItem.Single -> {
+                result.add(FlatExerciseItem(
+                    exercise = item.exercise,
+                    supersetColorIndex = null,
+                    connectorPosition = null
+                ))
+            }
+            is RoutineItem.SupersetItem -> {
+                val exercises = item.superset.exercises
+                exercises.forEachIndexed { index, exercise ->
+                    val position = when {
+                        exercises.size == 1 -> null // Single item, no connector
+                        index == 0 -> ConnectorPosition.TOP
+                        index == exercises.lastIndex -> ConnectorPosition.BOTTOM
+                        else -> ConnectorPosition.MIDDLE
+                    }
+                    result.add(FlatExerciseItem(
+                        exercise = exercise,
+                        supersetColorIndex = item.superset.colorIndex,
+                        connectorPosition = position
+                    ))
+                }
             }
         }
     }
+
+    return result
 }

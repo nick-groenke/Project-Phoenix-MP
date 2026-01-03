@@ -345,6 +345,7 @@ fun AnalyticsScreen(
                         groupedWorkoutHistory = groupedWorkoutHistory,
                         weightUnit = weightUnit,
                         formatWeight = viewModel::formatWeight,
+                        kgToDisplay = viewModel::kgToDisplay,
                         onDeleteWorkout = { viewModel.deleteWorkout(it) },
                         exerciseRepository = viewModel.exerciseRepository,
                         onRefresh = { /* Workout history refreshes automatically via StateFlow */ },
