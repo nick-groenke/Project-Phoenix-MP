@@ -161,11 +161,15 @@ fun ActiveWorkoutScreen(
     }
 
     // Use the new state holder pattern for cleaner API
+    // Issue #53: Compute canGoBack/canSkipForward based on routine and exercise index
+    val canGoBack = loadedRoutine != null && currentExerciseIndex > 0
+    val canSkipForward = loadedRoutine != null && currentExerciseIndex < (loadedRoutine?.exercises?.size ?: 0) - 1
+
     val workoutUiState = remember(
         connectionState, workoutState, currentMetric, currentHeuristicKgMax, workoutParameters,
         repCount, repRanges, autoStopState, weightUnit, enableVideoPlayback,
         loadedRoutine, currentExerciseIndex, currentSetIndex, userPreferences.autoplayEnabled,
-        loadBaselineA, loadBaselineB
+        loadBaselineA, loadBaselineB, canGoBack, canSkipForward
     ) {
         WorkoutUiState(
             connectionState = connectionState,
@@ -186,7 +190,9 @@ fun ActiveWorkoutScreen(
             showConnectionCard = false,
             showWorkoutSetupCard = false,
             loadBaselineA = loadBaselineA,
-            loadBaselineB = loadBaselineB
+            loadBaselineB = loadBaselineB,
+            canGoBack = canGoBack,
+            canSkipForward = canSkipForward
         )
     }
 

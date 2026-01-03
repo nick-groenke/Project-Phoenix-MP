@@ -3059,41 +3059,54 @@ class MainViewModel constructor(
 
             if (nextSupersetIndex != null) {
                 // More exercises in this superset cycle - move to next superset exercise (same set)
-                _currentExerciseIndex.value = nextSupersetIndex
-                // Don't change set index - we're cycling through the superset
-
+                // Issue #53: Skip exercises that have completed all their sets
                 val nextExercise = routine.exercises[nextSupersetIndex]
                 val nextSetReps = nextExercise.setReps.getOrNull(_currentSetIndex.value)
-                val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(_currentSetIndex.value)
-                    ?: nextExercise.weightPerCableKg
 
-                _workoutParameters.value = _workoutParameters.value.copy(
-                    weightPerCableKg = nextSetWeight,
-                    reps = nextSetReps ?: 0,
-                    workoutType = nextExercise.workoutType,
-                    progressionRegressionKg = nextExercise.progressionKg,
-                    selectedExerciseId = nextExercise.exercise.id,
-                    isAMRAP = nextSetReps == null,
-                    stallDetectionEnabled = nextExercise.stallDetectionEnabled
-                )
+                if (nextSetReps == null && nextExercise.setReps.isNotEmpty()) {
+                    // This exercise has no more sets - find next valid exercise or end cycle
+                    // Recursively find an exercise that still has sets at this index
+                    var candidateIndex = -1
+                    var candidateExercise: com.devil.phoenixproject.domain.model.RoutineExercise? = null
+                    val supersetExercises = getCurrentSupersetExercises()
+                    val startPos = supersetExercises.indexOfFirst { routine.exercises.indexOf(it) == nextSupersetIndex }
 
-                repCounter.resetCountsOnly()
-                resetAutoStopState()
-                startWorkout(skipCountdown = true)
-                return
-            } else {
-                // End of superset cycle - check if more sets in superset
-                val supersetExercises = getCurrentSupersetExercises()
-                val minSetsInSuperset = supersetExercises.minOfOrNull { it.setReps.size } ?: 0
+                    for (i in (startPos + 1) until supersetExercises.size) {
+                        val candidate = supersetExercises[i]
+                        if (candidate.setReps.getOrNull(_currentSetIndex.value) != null) {
+                            candidateIndex = routine.exercises.indexOf(candidate)
+                            candidateExercise = candidate
+                            break
+                        }
+                    }
 
-                if (_currentSetIndex.value < minSetsInSuperset - 1) {
-                    // More sets - go back to first exercise in superset
-                    val firstSupersetIndex = getFirstSupersetExerciseIndex() ?: return
-                    _currentSetIndex.value++
-                    _currentExerciseIndex.value = firstSupersetIndex
+                    if (candidateExercise == null || candidateIndex < 0) {
+                        // No more exercises in this cycle have sets - fall through to next set check
+                    } else {
+                        // Found a valid exercise with sets remaining
+                        _currentExerciseIndex.value = candidateIndex
+                        val setReps = candidateExercise.setReps.getOrNull(_currentSetIndex.value)
+                        val setWeight = candidateExercise.setWeightsPerCableKg.getOrNull(_currentSetIndex.value)
+                            ?: candidateExercise.weightPerCableKg
 
-                    val nextExercise = routine.exercises[firstSupersetIndex]
-                    val nextSetReps = nextExercise.setReps.getOrNull(_currentSetIndex.value)
+                        _workoutParameters.value = _workoutParameters.value.copy(
+                            weightPerCableKg = setWeight,
+                            reps = setReps ?: 0,
+                            workoutType = candidateExercise.workoutType,
+                            progressionRegressionKg = candidateExercise.progressionKg,
+                            selectedExerciseId = candidateExercise.exercise.id,
+                            isAMRAP = setReps == null,
+                            stallDetectionEnabled = candidateExercise.stallDetectionEnabled
+                        )
+
+                        repCounter.resetCountsOnly()
+                        resetAutoStopState()
+                        startWorkout(skipCountdown = true)
+                        return
+                    }
+                } else {
+                    // Normal case - next exercise has sets at this index
+                    _currentExerciseIndex.value = nextSupersetIndex
                     val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(_currentSetIndex.value)
                         ?: nextExercise.weightPerCableKg
 
@@ -3112,8 +3125,53 @@ class MainViewModel constructor(
                     startWorkout(skipCountdown = true)
                     return
                 }
-                // Superset complete - fall through to move to next exercise after superset
             }
+
+            // End of superset cycle or no valid exercises found - check if more sets in superset
+            // Issue #53: Use maxOfOrNull to ensure all exercises complete all their sets
+            val supersetExercises = getCurrentSupersetExercises()
+            val maxSetsInSuperset = supersetExercises.maxOfOrNull { it.setReps.size } ?: 0
+
+            if (_currentSetIndex.value < maxSetsInSuperset - 1) {
+                // More sets in superset - find first exercise that has a set at the next index
+                _currentSetIndex.value++
+                val nextSetIndex = _currentSetIndex.value
+
+                // Find the first exercise in the superset that has this set
+                var targetExercise: com.devil.phoenixproject.domain.model.RoutineExercise? = null
+                var targetIndex = -1
+                for (exercise in supersetExercises) {
+                    if (exercise.setReps.getOrNull(nextSetIndex) != null) {
+                        targetExercise = exercise
+                        targetIndex = routine.exercises.indexOf(exercise)
+                        break
+                    }
+                }
+
+                if (targetExercise != null && targetIndex >= 0) {
+                    _currentExerciseIndex.value = targetIndex
+                    val nextSetReps = targetExercise.setReps.getOrNull(nextSetIndex)
+                    val nextSetWeight = targetExercise.setWeightsPerCableKg.getOrNull(nextSetIndex)
+                        ?: targetExercise.weightPerCableKg
+
+                    _workoutParameters.value = _workoutParameters.value.copy(
+                        weightPerCableKg = nextSetWeight,
+                        reps = nextSetReps ?: 0,
+                        workoutType = targetExercise.workoutType,
+                        progressionRegressionKg = targetExercise.progressionKg,
+                        selectedExerciseId = targetExercise.exercise.id,
+                        isAMRAP = nextSetReps == null,
+                        stallDetectionEnabled = targetExercise.stallDetectionEnabled
+                    )
+
+                    repCounter.resetCountsOnly()
+                    resetAutoStopState()
+                    startWorkout(skipCountdown = true)
+                    return
+                }
+                // No exercise found with sets at this index - fall through to complete superset
+            }
+            // Superset complete - fall through to move to next exercise after superset
         }
 
         // Normal (non-superset) progression
