@@ -1,5 +1,6 @@
 package com.devil.phoenixproject.portal
 
+import com.devil.phoenixproject.portal.routes.syncRoutes
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -60,5 +61,7 @@ fun Application.module() {
         get("/health") {
             call.respond(mapOf("status" to "healthy"))
         }
+
+        syncRoutes()
     }
 }
