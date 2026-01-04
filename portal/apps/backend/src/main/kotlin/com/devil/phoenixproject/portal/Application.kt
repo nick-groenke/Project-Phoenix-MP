@@ -17,16 +17,33 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.json.Json
 import org.slf4j.event.Level
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
+
+private val databaseReady = AtomicBoolean(false)
+private var databaseError: String? = null
+private val logger = org.slf4j.LoggerFactory.getLogger("Application")
 
 fun main() {
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
+    logger.info("Starting Phoenix Portal API on port $port")
     embeddedServer(Netty, port = port, host = "0.0.0.0", module = Application::module)
         .start(wait = true)
 }
 
 fun Application.module() {
-    // Initialize database
-    DatabaseFactory.init()
+    // Initialize database in background so server can start immediately
+    thread(name = "db-init") {
+        try {
+            logger.info("Initializing database connection...")
+            DatabaseFactory.init()
+            databaseReady.set(true)
+            logger.info("Database initialization complete")
+        } catch (e: Exception) {
+            databaseError = e.message
+            logger.error("Database initialization failed: ${e.message}", e)
+        }
+    }
 
     val authService = AuthService()
 
@@ -69,7 +86,15 @@ fun Application.module() {
         }
 
         get("/health") {
-            call.respond(mapOf("status" to "healthy"))
+            val dbStatus = when {
+                databaseReady.get() -> "connected"
+                databaseError != null -> "error: $databaseError"
+                else -> "connecting"
+            }
+            call.respond(mapOf(
+                "status" to "healthy",
+                "database" to dbStatus
+            ))
         }
 
         authRoutes(authService)
