@@ -8,15 +8,19 @@ import org.jetbrains.exposed.sql.transactions.transaction
 
 object DatabaseFactory {
     fun init() {
-        val databaseUrl = System.getenv("DATABASE_URL")
-            ?: "jdbc:postgresql://localhost:5432/phoenix_portal"
-        val dbUser = System.getenv("DATABASE_USER") ?: "postgres"
-        val dbPassword = System.getenv("DATABASE_PASSWORD") ?: "postgres"
+        // Railway provides these env vars for PostgreSQL
+        val pgHost = System.getenv("PGHOST") ?: "localhost"
+        val pgPort = System.getenv("PGPORT") ?: "5432"
+        val pgDatabase = System.getenv("PGDATABASE") ?: "phoenix_portal"
+        val pgUser = System.getenv("PGUSER") ?: "postgres"
+        val pgPassword = System.getenv("PGPASSWORD") ?: "postgres"
+
+        val jdbcUrl = "jdbc:postgresql://$pgHost:$pgPort/$pgDatabase"
 
         val config = HikariConfig().apply {
-            jdbcUrl = databaseUrl
-            username = dbUser
-            password = dbPassword
+            this.jdbcUrl = jdbcUrl
+            username = pgUser
+            password = pgPassword
             driverClassName = "org.postgresql.Driver"
             maximumPoolSize = 10
             isAutoCommit = false

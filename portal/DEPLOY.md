@@ -7,14 +7,14 @@ Simple deployment using Railway (backend + database) and Vercel (frontend).
 1. Create a new Railway project
 2. Add a **PostgreSQL** database service
 3. Add a new service from GitHub, point to `portal/apps/backend`
-4. Set these environment variables:
+4. **Link the PostgreSQL to your backend service** (this auto-injects PGHOST, PGUSER, etc.)
+5. Add this environment variable manually:
    ```
-   DATABASE_URL=<from Railway PostgreSQL>
-   DATABASE_USER=<from Railway PostgreSQL>
-   DATABASE_PASSWORD=<from Railway PostgreSQL>
    JWT_SECRET=<generate a random 32+ character string>
    ```
-5. Railway will auto-detect the Dockerfile and deploy
+6. Railway will auto-detect the Dockerfile and deploy
+
+**Note:** Railway automatically provides `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` when you link a PostgreSQL service. You don't need to set these manually.
 
 ## Frontend (Vercel)
 
@@ -51,9 +51,11 @@ npm run dev
 | Variable | Description | Default |
 |----------|-------------|---------|
 | PORT | Server port | 8080 |
-| DATABASE_URL | PostgreSQL JDBC URL | localhost:5432/phoenix_portal |
-| DATABASE_USER | Database username | postgres |
-| DATABASE_PASSWORD | Database password | postgres |
+| PGHOST | PostgreSQL host | localhost |
+| PGPORT | PostgreSQL port | 5432 |
+| PGDATABASE | Database name | phoenix_portal |
+| PGUSER | Database username | postgres |
+| PGPASSWORD | Database password | postgres |
 | JWT_SECRET | JWT signing secret | dev-secret (change in prod!) |
 
 ### Frontend (Next.js)
