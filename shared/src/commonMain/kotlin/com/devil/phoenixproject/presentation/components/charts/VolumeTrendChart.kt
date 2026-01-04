@@ -80,7 +80,10 @@ fun VolumeTrendChart(
         WindowWidthSizeClass.Compact -> 50.dp
     }
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    // Responsive chart height
+    val chartHeight = ResponsiveDimensions.chartHeight(baseHeight = 250.dp)
+
+    Column(modifier = modifier.fillMaxWidth().height(chartHeight)) {
         // Chart area
         Row(
             modifier = Modifier
