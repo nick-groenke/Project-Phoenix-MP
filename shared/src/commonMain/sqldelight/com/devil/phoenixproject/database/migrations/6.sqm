@@ -1,0 +1,39 @@
+-- Migration 6: Add sync tracking fields for cloud sync
+-- Adds updatedAt, serverId, deletedAt to sync-enabled tables
+
+-- WorkoutSession sync fields
+ALTER TABLE WorkoutSession ADD COLUMN updatedAt INTEGER;
+ALTER TABLE WorkoutSession ADD COLUMN serverId TEXT;
+ALTER TABLE WorkoutSession ADD COLUMN deletedAt INTEGER;
+
+-- PersonalRecord sync fields
+ALTER TABLE PersonalRecord ADD COLUMN updatedAt INTEGER;
+ALTER TABLE PersonalRecord ADD COLUMN serverId TEXT;
+ALTER TABLE PersonalRecord ADD COLUMN deletedAt INTEGER;
+
+-- Routine sync fields
+ALTER TABLE Routine ADD COLUMN updatedAt INTEGER;
+ALTER TABLE Routine ADD COLUMN serverId TEXT;
+ALTER TABLE Routine ADD COLUMN deletedAt INTEGER;
+
+-- Exercise sync fields (for custom exercises only)
+ALTER TABLE Exercise ADD COLUMN updatedAt INTEGER;
+ALTER TABLE Exercise ADD COLUMN serverId TEXT;
+ALTER TABLE Exercise ADD COLUMN deletedAt INTEGER;
+
+-- EarnedBadge sync fields
+ALTER TABLE EarnedBadge ADD COLUMN updatedAt INTEGER;
+ALTER TABLE EarnedBadge ADD COLUMN serverId TEXT;
+ALTER TABLE EarnedBadge ADD COLUMN deletedAt INTEGER;
+
+-- GamificationStats sync fields
+ALTER TABLE GamificationStats ADD COLUMN updatedAt INTEGER;
+ALTER TABLE GamificationStats ADD COLUMN serverId TEXT;
+
+-- Backfill updatedAt with existing timestamps where available
+UPDATE WorkoutSession SET updatedAt = timestamp WHERE updatedAt IS NULL;
+UPDATE PersonalRecord SET updatedAt = achievedAt WHERE updatedAt IS NULL;
+UPDATE Routine SET updatedAt = createdAt WHERE updatedAt IS NULL;
+UPDATE Exercise SET updatedAt = created WHERE updatedAt IS NULL;
+UPDATE EarnedBadge SET updatedAt = earnedAt WHERE updatedAt IS NULL;
+UPDATE GamificationStats SET updatedAt = lastUpdated WHERE updatedAt IS NULL;
