@@ -42,6 +42,9 @@ sealed class NavigationRoutes(val route: String) {
     object Auth : NavigationRoutes("auth")
     object Paywall : NavigationRoutes("paywall")
     object Account : NavigationRoutes("account")
+
+    // Cloud Sync routes
+    object LinkAccount : NavigationRoutes("link_account")
 }
 
 /**

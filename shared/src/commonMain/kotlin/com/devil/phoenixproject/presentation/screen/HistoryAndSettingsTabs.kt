@@ -939,6 +939,7 @@ fun SettingsTab(
     onDeleteAllWorkouts: () -> Unit,
     onNavigateToConnectionLogs: () -> Unit = {},
     onNavigateToBadges: () -> Unit = {},
+    onNavigateToLinkAccount: () -> Unit = {},
     @Suppress("UNUSED_PARAMETER") // Reserved for future connecting overlay
     isAutoConnecting: Boolean = false,
     connectionError: String? = null,
@@ -1684,6 +1685,84 @@ fun SettingsTab(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 "Track your progress, earn badges, and maintain your workout streak",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    // Cloud Sync Section - Material 3 Expressive
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(8.dp, RoundedCornerShape(20.dp)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.medium)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .shadow(8.dp, RoundedCornerShape(20.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFF06B6D4), Color(0xFF3B82F6))
+                            ),
+                            RoundedCornerShape(20.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.Cloud,
+                        contentDescription = "Cloud Sync",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(Spacing.medium))
+                Text(
+                    "Cloud Sync",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(Spacing.small))
+
+            OutlinedButton(
+                onClick = onNavigateToLinkAccount,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary
+                ),
+                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(
+                    Icons.Default.Sync,
+                    contentDescription = "Link Portal Account",
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(Spacing.small))
+                Text(
+                    "Link Portal Account",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Sync your workouts to the Phoenix Portal for cross-device access",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

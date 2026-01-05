@@ -1,8 +1,9 @@
-package com.devil.phoenixproject.ui.sync
+package com.devil.phoenixproject.presentation.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -16,10 +17,10 @@ import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.data.sync.SyncState
 import com.devil.phoenixproject.ui.sync.LinkAccountUiState
 import com.devil.phoenixproject.ui.sync.LinkAccountViewModel
+import com.devil.phoenixproject.util.KmpUtils
 import org.koin.compose.koinInject
-import java.text.SimpleDateFormat
-import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LinkAccountScreen(
     viewModel: LinkAccountViewModel = koinInject(),
@@ -31,44 +32,54 @@ fun LinkAccountScreen(
     val syncState by viewModel.syncState.collectAsState()
     val lastSyncTime by viewModel.lastSyncTime.collectAsState()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "Phoenix Portal",
-            style = MaterialTheme.typography.headlineMedium
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Sync your workouts across devices",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (isAuthenticated && currentUser != null) {
-            // Logged in state
-            LinkedAccountContent(
-                user = currentUser!!,
-                syncState = syncState,
-                lastSyncTime = lastSyncTime,
-                onSync = { viewModel.sync() },
-                onLogout = { viewModel.logout() }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Phoenix Portal") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
             )
-        } else {
-            // Login/Signup form
-            LoginSignupForm(
-                uiState = uiState,
-                onLogin = { email, password -> viewModel.login(email, password) },
-                onSignup = { email, password, name -> viewModel.signup(email, password, name) },
-                onClearError = { viewModel.clearError() }
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Sync your workouts across devices",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (isAuthenticated && currentUser != null) {
+                // Logged in state
+                LinkedAccountContent(
+                    user = currentUser!!,
+                    syncState = syncState,
+                    lastSyncTime = lastSyncTime,
+                    onSync = { viewModel.sync() },
+                    onLogout = { viewModel.logout() }
+                )
+            } else {
+                // Login/Signup form
+                LoginSignupForm(
+                    uiState = uiState,
+                    onLogin = { email, password -> viewModel.login(email, password) },
+                    onSignup = { email, password, name -> viewModel.signup(email, password, name) },
+                    onClearError = { viewModel.clearError() }
+                )
+            }
         }
     }
 }
@@ -119,7 +130,7 @@ private fun LinkedAccountContent(
                     Text("Syncing...")
                 }
                 is SyncState.Success -> {
-                    Text("Last synced: ${formatTimestamp(syncState.syncTime)}")
+                    Text("Last synced: ${formatSyncTimestamp(syncState.syncTime)}")
                 }
                 is SyncState.Error -> {
                     Text(
@@ -135,7 +146,7 @@ private fun LinkedAccountContent(
                 }
                 else -> {
                     if (lastSyncTime > 0) {
-                        Text("Last synced: ${formatTimestamp(lastSyncTime)}")
+                        Text("Last synced: ${formatSyncTimestamp(lastSyncTime)}")
                     } else {
                         Text("Never synced")
                     }
@@ -280,8 +291,9 @@ private fun LoginSignupForm(
     }
 }
 
-private fun formatTimestamp(timestamp: Long): String {
+private fun formatSyncTimestamp(timestamp: Long): String {
     if (timestamp == 0L) return "Never"
-    val sdf = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-    return sdf.format(Date(timestamp))
+    val date = KmpUtils.formatTimestamp(timestamp, "MMM dd, yyyy")
+    val time = KmpUtils.formatTimestamp(timestamp, "h:mm a")
+    return "$date, $time"
 }

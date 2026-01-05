@@ -268,6 +268,7 @@ fun NavGraph(
                 onDeleteAllWorkouts = { viewModel.deleteAllWorkouts() },
                 onNavigateToConnectionLogs = { navController.navigate(NavigationRoutes.ConnectionLogs.route) },
                 onNavigateToBadges = { navController.navigate(NavigationRoutes.Badges.route) },
+                onNavigateToLinkAccount = { navController.navigate(NavigationRoutes.LinkAccount.route) },
                 isAutoConnecting = isAutoConnecting,
                 connectionError = connectionError,
                 onClearConnectionError = { viewModel.clearConnectionError() },
@@ -501,6 +502,29 @@ fun NavGraph(
                 onBackClick = { navController.popBackStack() },
                 onSignInClick = { navController.navigate(NavigationRoutes.Auth.route) },
                 onUpgradeClick = { navController.navigate(NavigationRoutes.Paywall.route) }
+            )
+        }
+
+        // Link Account screen - cloud sync with Phoenix Portal
+        composable(
+            route = NavigationRoutes.LinkAccount.route,
+            enterTransition = {
+                slideIntoContainer(
+                    towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                    animationSpec = tween(300)
+                )
+            },
+            exitTransition = { fadeOut(animationSpec = tween(200)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(200)) },
+            popExitTransition = {
+                slideOutOfContainer(
+                    towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                    animationSpec = tween(300)
+                )
+            }
+        ) {
+            LinkAccountScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }
