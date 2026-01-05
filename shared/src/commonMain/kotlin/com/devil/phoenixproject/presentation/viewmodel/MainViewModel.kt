@@ -387,6 +387,9 @@ class MainViewModel constructor(
     private var autoStopStartTime: Long? = null
     private var autoStopTriggered = false
     private var autoStopStopRequested = false
+    // Guard to prevent race condition where multiple stopWorkout() calls create duplicate sessions
+    // Issue #97: handleMonitorMetric() can call stopWorkout() multiple times before state changes
+    private var stopWorkoutInProgress = false
     private var currentHandleState: HandleState = HandleState.WaitingForRest
 
     // Velocity-based stall detection state (Issue #204, #214)
@@ -733,6 +736,9 @@ class MainViewModel constructor(
         Logger.d { "startWorkout called: skipCountdown=$skipCountdown, isJustLiftMode=$isJustLiftMode" }
         Logger.d { "startWorkout: loadedRoutine=${_loadedRoutine.value?.name}, params=${_workoutParameters.value}" }
 
+        // Reset stopWorkout guard for new workout (Issue #97)
+        stopWorkoutInProgress = false
+
         // NOTE: No connection guard here - caller (ensureConnection) ensures connection
         // Parent repo doesn't check connection in startWorkout()
 
@@ -911,6 +917,11 @@ class MainViewModel constructor(
     }
 
     fun stopWorkout() {
+        // Guard against race condition: handleMonitorMetric() can call this multiple times
+        // before the coroutine completes and changes state (Issue #97)
+        if (stopWorkoutInProgress) return
+        stopWorkoutInProgress = true
+
         viewModelScope.launch {
              // Reset timed workout flag
              isCurrentWorkoutTimed = false
@@ -1335,6 +1346,7 @@ class MainViewModel constructor(
      * Navigate to a specific exercise in the routine.
      * Saves progress of current exercise if any reps completed.
      * If workout is currently Active, stops the machine first and waits for completion.
+     * After navigation, auto-starts the next exercise with a brief countdown.
      */
     fun jumpToExercise(index: Int) {
         val routine = _loadedRoutine.value ?: return
@@ -1372,10 +1384,15 @@ class MainViewModel constructor(
                 }
                 // Navigate AFTER stop completes to ensure machine is ready for new commands
                 navigateToExerciseInternal(routine, index)
+                // Auto-start the next exercise with countdown (Issue #93 fix)
+                // Show countdown to give user time to prepare for the next exercise
+                startWorkout(skipCountdown = false)
             }
         } else {
-            // Not active, navigate immediately
+            // Not active, navigate immediately and auto-start
             navigateToExerciseInternal(routine, index)
+            // Auto-start the next exercise with countdown (Issue #93 fix)
+            startWorkout(skipCountdown = false)
         }
     }
 
@@ -2901,13 +2918,26 @@ class MainViewModel constructor(
             // Determine rest duration:
             // - If in a superset and NOT at the end of the cycle, use short superset rest
             // - Otherwise, use the normal per-set rest time
+            // - 0 rest time is valid and means "skip rest, go immediately to next set"
             val isInSupersetTransition = isInSuperset() && !isAtEndOfSupersetCycle()
             val restDuration = if (isInSupersetTransition) {
                 getSupersetRestSeconds().coerceAtLeast(5) // Min 5s for superset transitions
             } else {
-                currentExercise?.getRestForSet(completedSetIndex)?.takeIf { it > 0 } ?: 90
+                currentExercise?.getRestForSet(completedSetIndex) ?: 90
             }
             val autoplay = autoplayEnabled.value
+
+            // Handle 0 rest time: skip rest timer entirely and advance immediately
+            // This supports use cases like alternating arms where user wants no rest between sides
+            if (restDuration == 0) {
+                Logger.d { "Rest duration is 0 - skipping rest timer, advancing immediately" }
+                if (isSingleExerciseMode()) {
+                    advanceToNextSetInSingleExercise()
+                } else {
+                    startNextSetOrExercise()
+                }
+                return@launch
+            }
 
             val isSingleExercise = isSingleExerciseMode()
 
@@ -2919,6 +2949,39 @@ class MainViewModel constructor(
                 if (groupIndex >= 0) "Superset ${('A' + groupIndex)}" else "Superset"
             } else null
 
+            // Issue #94: Calculate correct set/total for "UP NEXT" display
+            // When transitioning to a new exercise, show "Set 1 of X" for the next exercise
+            // When staying in the same exercise, show the next set number
+            // Note: UI adds +1 to currentSet for display, so we pass 0-indexed values
+            val isLastSetOfCurrentExercise = _currentSetIndex.value >= (currentExercise?.setReps?.size ?: 1) - 1
+            val isLastExerciseOverall = calculateIsLastExercise(isSingleExercise, currentExercise, routine)
+            val isTransitioningToNextExercise = isLastSetOfCurrentExercise && !isLastExerciseOverall && !isSingleExercise
+
+            // For superset transitions, we're moving to a different exercise but same set index
+            // For exercise transitions, we're moving to the first set of the next exercise
+            val nextExercise = if (isTransitioningToNextExercise && !isInSupersetTransition) {
+                routine?.exercises?.getOrNull(_currentExerciseIndex.value + 1)
+            } else if (isInSupersetTransition) {
+                // During superset transition, get the next exercise in the superset
+                val nextSupersetIndex = getNextSupersetExerciseIndex()
+                if (nextSupersetIndex != null) routine?.exercises?.getOrNull(nextSupersetIndex) else null
+            } else {
+                null
+            }
+
+            // Calculate display values for the rest timer
+            // UI adds +1 to displaySetIndex for display, so we pass the 0-indexed value of the UPCOMING set
+            val displaySetIndex = when {
+                isTransitioningToNextExercise && !isInSupersetTransition -> 0 // About to do set 1 of next exercise
+                isInSupersetTransition -> _currentSetIndex.value // Same set index, moving to different exercise in superset
+                else -> _currentSetIndex.value + 1 // About to do next set in same exercise
+            }
+            val displayTotalSets = when {
+                isTransitioningToNextExercise && !isInSupersetTransition -> nextExercise?.setReps?.size ?: 0
+                isInSupersetTransition && nextExercise != null -> nextExercise.setReps.size
+                else -> currentExercise?.setReps?.size ?: 0
+            }
+
             // Countdown
             for (i in restDuration downTo 1) {
                 val nextName = calculateNextExerciseName(isSingleExercise, currentExercise, routine)
@@ -2926,9 +2989,9 @@ class MainViewModel constructor(
                 _workoutState.value = WorkoutState.Resting(
                     restSecondsRemaining = i,
                     nextExerciseName = nextName,
-                    isLastExercise = calculateIsLastExercise(isSingleExercise, currentExercise, routine),
-                    currentSet = _currentSetIndex.value + 1,
-                    totalSets = currentExercise?.setReps?.size ?: 0,
+                    isLastExercise = isLastExerciseOverall,
+                    currentSet = displaySetIndex,
+                    totalSets = displayTotalSets,
                     isSupersetTransition = isInSupersetTransition,
                     supersetLabel = supersetLabel
                 )
@@ -2946,9 +3009,9 @@ class MainViewModel constructor(
                 _workoutState.value = WorkoutState.Resting(
                     restSecondsRemaining = 0,
                     nextExerciseName = calculateNextExerciseName(isSingleExercise, currentExercise, routine),
-                    isLastExercise = calculateIsLastExercise(isSingleExercise, currentExercise, routine),
-                    currentSet = _currentSetIndex.value + 1,
-                    totalSets = currentExercise?.setReps?.size ?: 0,
+                    isLastExercise = isLastExerciseOverall,
+                    currentSet = displaySetIndex,
+                    totalSets = displayTotalSets,
                     isSupersetTransition = isInSupersetTransition,
                     supersetLabel = supersetLabel
                 )

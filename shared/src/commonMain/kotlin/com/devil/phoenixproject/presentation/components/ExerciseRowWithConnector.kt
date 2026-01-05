@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.domain.model.RoutineExercise
 import com.devil.phoenixproject.domain.model.WeightUnit
+import com.devil.phoenixproject.domain.model.WorkoutType
 
 /**
  * Unified exercise row that handles both standalone and superset exercises.
@@ -117,10 +118,16 @@ fun ExerciseRowWithConnector(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    val weight = kgToDisplay(exercise.weightPerCableKg, weightUnit)
-                    val unitLabel = if (weightUnit == WeightUnit.KG) "kg" else "lbs"
+                    val isEchoMode = exercise.workoutType is WorkoutType.Echo
+                    val weightText = if (isEchoMode) {
+                        "Adaptive"
+                    } else {
+                        val weight = kgToDisplay(exercise.weightPerCableKg, weightUnit)
+                        val unitLabel = if (weightUnit == WeightUnit.KG) "kg" else "lbs"
+                        "${weight.toInt()} $unitLabel"
+                    }
                     Text(
-                        "${exercise.sets} sets x ${exercise.reps} reps @ ${weight.toInt()} $unitLabel",
+                        "${exercise.sets} sets x ${exercise.reps} reps @ $weightText",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

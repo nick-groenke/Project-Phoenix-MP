@@ -99,6 +99,7 @@ class KableBleRepository : BleRepository {
         private const val HANDLE_REST_THRESHOLD = 5.0       // Position < 5.0mm = handles at rest (Increased from 2.5 to handle drift - matches parent repo)
         // Velocity is in mm/s (calculated from mm positions)
         private const val VELOCITY_THRESHOLD = 50.0         // Velocity > 50 mm/s = significant movement (matches official concentric threshold)
+        private const val AUTO_START_VELOCITY_THRESHOLD = 20.0  // Lower threshold for auto-start grab detection (Issue #96)
 
         // Velocity smoothing (Issue #204, #214)
         // EMA alpha: 0.3 = balanced smoothing (faster response during direction changes)
@@ -264,6 +265,7 @@ class KableBleRepository : BleRepository {
 
     // Handle detection
     private var handleDetectionEnabled = false
+    private var isAutoStartMode = false  // Uses lower velocity threshold for grab detection (Issue #96)
 
     // Connected device info (for logging)
     private var connectedDeviceName: String = ""
@@ -1305,9 +1307,12 @@ class KableBleRepository : BleRepository {
             forceAboveGrabThresholdStart = null
             forceBelowReleaseThresholdStart = null
             handleDetectionEnabled = true
+            isAutoStartMode = true  // Issue #96: Use lower velocity threshold for grab detection
             // iOS autostart fix: Reset WaitingForRest timeout tracker
             waitingForRestStartTime = null
-            log.i { "🎯 Monitor polling for AUTO-START - waiting for handles at rest (pos < ${HANDLE_REST_THRESHOLD}mm)" }
+            log.i { "🎯 Monitor polling for AUTO-START - waiting for handles at rest (pos < ${HANDLE_REST_THRESHOLD}mm), vel threshold=${AUTO_START_VELOCITY_THRESHOLD}mm/s" }
+        } else {
+            isAutoStartMode = false  // Normal mode uses standard velocity threshold
         }
 
         // Cancel any existing polling job before starting new one
@@ -1587,6 +1592,7 @@ class KableBleRepository : BleRepository {
         } else {
             // Disable handle detection but keep polling for metrics
             handleDetectionEnabled = false
+            isAutoStartMode = false  // Issue #96: Reset auto-start mode flag
             log.i { "🎮 Handle detection disabled (polling continues for metrics)" }
         }
     }
@@ -1605,7 +1611,7 @@ class KableBleRepository : BleRepository {
 
     override fun enableJustLiftWaitingMode() {
         log.i { "🎯 Enabling Just Lift waiting mode - ready for next set" }
-        log.i { "   Detection thresholds: grab pos>${HANDLE_GRABBED_THRESHOLD}mm + vel>${VELOCITY_THRESHOLD}mm/s, release pos<${HANDLE_REST_THRESHOLD}mm" }
+        log.i { "   Detection thresholds: grab pos>${HANDLE_GRABBED_THRESHOLD}mm + vel>${AUTO_START_VELOCITY_THRESHOLD}mm/s, release pos<${HANDLE_REST_THRESHOLD}mm" }
 
         // Reset position tracking for diagnostics
         minPositionSeen = Double.MAX_VALUE
@@ -1627,6 +1633,7 @@ class KableBleRepository : BleRepository {
 
         // Enable handle detection for the state machine
         handleDetectionEnabled = true
+        isAutoStartMode = true  // Issue #96: Use lower velocity threshold for grab detection
     }
 
     override fun restartMonitorPolling() {
@@ -1662,8 +1669,8 @@ class KableBleRepository : BleRepository {
         if (minPositionSeen != Double.MAX_VALUE && maxPositionSeen != Double.MIN_VALUE) {
             log.i { "========== WORKOUT ANALYSIS ==========" }
             log.i { "Position range: min=$minPositionSeen, max=$maxPositionSeen" }
-            log.i { "v0.5.1-beta detection thresholds:" }
-            log.i { "  Handle grab: pos > $HANDLE_GRABBED_THRESHOLD + velocity > $VELOCITY_THRESHOLD" }
+            log.i { "Detection thresholds (auto-start mode uses lower velocity):" }
+            log.i { "  Handle grab: pos > $HANDLE_GRABBED_THRESHOLD + velocity > ${if (isAutoStartMode) AUTO_START_VELOCITY_THRESHOLD else VELOCITY_THRESHOLD}${if (isAutoStartMode) " (auto-start)" else ""}" }
             log.i { "  Handle release: pos < $HANDLE_REST_THRESHOLD" }
             log.i { "======================================" }
         }
@@ -2057,15 +2064,17 @@ class KableBleRepository : BleRepository {
 
         // Check handles - support single-handle exercises
         // NOTE: Use abs(velocity) since velocity is now signed (Issue #204 fix)
+        // Issue #96: Use lower velocity threshold for auto-start grab detection
+        val velocityThreshold = if (isAutoStartMode) AUTO_START_VELOCITY_THRESHOLD else VELOCITY_THRESHOLD
         val handleAGrabbed = posA > HANDLE_GRABBED_THRESHOLD
         val handleBGrabbed = posB > HANDLE_GRABBED_THRESHOLD
-        val handleAMoving = kotlin.math.abs(velocityA) > VELOCITY_THRESHOLD
-        val handleBMoving = kotlin.math.abs(velocityB) > VELOCITY_THRESHOLD
+        val handleAMoving = kotlin.math.abs(velocityA) > velocityThreshold
+        val handleBMoving = kotlin.math.abs(velocityB) > velocityThreshold
 
         // Periodic diagnostic logging (every 200 samples at high poll rate)
         handleStateLogCounter++
         if (handleStateLogCounter % 200 == 0L) {
-            log.i { "🎯 HANDLE STATE: $currentState | posA=${posA.format(1)}mm posB=${posB.format(1)}mm | velA=${velocityA.format(0)} velB=${velocityB.format(0)} | thresholds: rest<$HANDLE_REST_THRESHOLD grab>$HANDLE_GRABBED_THRESHOLD vel>$VELOCITY_THRESHOLD" }
+            log.i { "🎯 HANDLE STATE: $currentState | posA=${posA.format(1)}mm posB=${posB.format(1)}mm | velA=${velocityA.format(0)} velB=${velocityB.format(0)} | thresholds: rest<$HANDLE_REST_THRESHOLD grab>$HANDLE_GRABBED_THRESHOLD vel>$velocityThreshold${if (isAutoStartMode) " (auto-start)" else ""}" }
         }
 
         return when (currentState) {

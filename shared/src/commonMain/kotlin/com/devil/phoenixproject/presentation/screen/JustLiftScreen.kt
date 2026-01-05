@@ -175,7 +175,8 @@ fun JustLiftScreen(
             progressionRegressionKg = weightChangeKg,
             isJustLift = true,
             useAutoStart = true, // Enable auto-start for Just Lift
-            stallDetectionEnabled = userPreferences.stallDetectionEnabled
+            stallDetectionEnabled = userPreferences.stallDetectionEnabled,
+            selectedExerciseId = null // Issue #97: Clear exercise ID for Just Lift sessions
         )
         viewModel.updateWorkoutParameters(updatedParameters)
     }

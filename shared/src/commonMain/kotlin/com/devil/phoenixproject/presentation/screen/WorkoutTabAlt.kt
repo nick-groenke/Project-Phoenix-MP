@@ -513,8 +513,13 @@ private fun AltActiveStateDashboard(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
+                                val currentSetWeightText = if (workoutParameters.workoutType is WorkoutType.Echo) {
+                                    "Adaptive"
+                                } else {
+                                    formatWeight(workoutParameters.weightPerCableKg, weightUnit)
+                                }
                                 Text(
-                                    text = "${workoutParameters.reps} Reps @ ${formatWeight(workoutParameters.weightPerCableKg, weightUnit)}",
+                                    text = "${workoutParameters.reps} Reps @ $currentSetWeightText",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -640,8 +645,13 @@ private fun AltIdleStateView(
                 ) {
                     Column {
                         Text("Ready to Start", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        val readyWeightText = if (workoutParameters.workoutType is WorkoutType.Echo) {
+                            "Adaptive"
+                        } else {
+                            formatWeight(workoutParameters.weightPerCableKg, weightUnit)
+                        }
                         Text(
-                            "${workoutParameters.reps} Reps • ${formatWeight(workoutParameters.weightPerCableKg, weightUnit)}",
+                            "${workoutParameters.reps} Reps • $readyWeightText",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
