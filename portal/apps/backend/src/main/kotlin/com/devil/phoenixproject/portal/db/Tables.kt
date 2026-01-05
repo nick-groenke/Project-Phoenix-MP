@@ -130,3 +130,81 @@ object PhaseStatistics : UUIDTable("phase_statistics") {
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
 }
+
+object Routines : UUIDTable("routines") {
+    val userId = reference("user_id", Users)
+
+    // Sync metadata
+    val clientId = uuid("client_id").uniqueIndex()
+    val deviceId = uuid("device_id")
+    val deletedAt = timestamp("deleted_at").nullable()
+
+    // Routine data
+    val name = varchar("name", 255)
+    val description = text("description").default("")
+    val lastUsed = long("last_used").nullable()
+    val useCount = integer("use_count").default(0)
+
+    // Timestamps
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+}
+
+object Supersets : UUIDTable("supersets") {
+    val userId = reference("user_id", Users)
+    val routineId = reference("routine_id", Routines)
+
+    // Sync metadata
+    val clientId = uuid("client_id").uniqueIndex()
+    val deviceId = uuid("device_id")
+    val deletedAt = timestamp("deleted_at").nullable()
+
+    // Superset data
+    val name = varchar("name", 255)
+    val colorIndex = integer("color_index").default(0)
+    val restBetweenSeconds = integer("rest_between_seconds").default(10)
+    val orderIndex = integer("order_index")
+
+    // Timestamps
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+}
+
+object RoutineExercises : UUIDTable("routine_exercises") {
+    val userId = reference("user_id", Users)
+    val routineId = reference("routine_id", Routines)
+    val supersetId = reference("superset_id", Supersets).nullable()
+
+    // Sync metadata
+    val clientId = uuid("client_id").uniqueIndex()
+    val deviceId = uuid("device_id")
+    val deletedAt = timestamp("deleted_at").nullable()
+
+    // Exercise reference
+    val exerciseId = varchar("exercise_id", 255).nullable()
+    val exerciseName = varchar("exercise_name", 255)
+    val exerciseMuscleGroup = varchar("exercise_muscle_group", 100).default("")
+    val exerciseEquipment = varchar("exercise_equipment", 100).default("")
+    val exerciseDefaultCableConfig = varchar("exercise_default_cable_config", 50).default("DOUBLE")
+
+    // Configuration
+    val cableConfig = varchar("cable_config", 50).default("DOUBLE")
+    val orderIndex = integer("order_index")
+    val setReps = varchar("set_reps", 255).default("10,10,10")
+    val weightPerCableKg = float("weight_per_cable_kg").default(0f)
+    val setWeights = varchar("set_weights", 500).default("")
+    val mode = varchar("mode", 50).default("OldSchool")
+    val eccentricLoad = integer("eccentric_load").default(100)
+    val echoLevel = integer("echo_level").default(1)
+    val progressionKg = float("progression_kg").default(0f)
+    val restSeconds = integer("rest_seconds").default(60)
+    val duration = integer("duration").nullable()
+    val setRestSeconds = varchar("set_rest_seconds", 255).default("[]")
+    val perSetRestTime = integer("per_set_rest_time").default(0)
+    val isAMRAP = bool("is_amrap").default(false)
+    val orderInSuperset = integer("order_in_superset").default(0)
+
+    // Timestamps
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+}
