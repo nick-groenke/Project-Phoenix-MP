@@ -1063,6 +1063,14 @@ class MainViewModel constructor(
         viewModelScope.launch { preferencesManager.setAudioRepCountEnabled(enabled) }
     }
 
+    fun setSummaryCountdownSeconds(seconds: Int) {
+        viewModelScope.launch { preferencesManager.setSummaryCountdownSeconds(seconds) }
+    }
+
+    fun setAutoStartCountdownSeconds(seconds: Int) {
+        viewModelScope.launch { preferencesManager.setAutoStartCountdownSeconds(seconds) }
+    }
+
     fun setColorScheme(schemeIndex: Int) {
         viewModelScope.launch {
             bleRepository.setColorScheme(schemeIndex)
