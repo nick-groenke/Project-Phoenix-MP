@@ -112,6 +112,8 @@ interface PreferencesManager {
     suspend fun setStallDetectionEnabled(enabled: Boolean)
     suspend fun setDiscoModeUnlocked(unlocked: Boolean)
     suspend fun setAudioRepCountEnabled(enabled: Boolean)
+    suspend fun setSummaryCountdownSeconds(seconds: Int)
+    suspend fun setAutoStartCountdownSeconds(seconds: Int)
 
     suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults?
     suspend fun saveSingleExerciseDefaults(defaults: SingleExerciseDefaults)
@@ -148,6 +150,8 @@ class SettingsPreferencesManager(
         private const val KEY_STALL_DETECTION = "stall_detection_enabled"
         private const val KEY_DISCO_MODE_UNLOCKED = "disco_mode_unlocked"
         private const val KEY_AUDIO_REP_COUNT = "audio_rep_count_enabled"
+        private const val KEY_SUMMARY_COUNTDOWN_SECONDS = "summary_countdown_seconds"
+        private const val KEY_AUTOSTART_COUNTDOWN_SECONDS = "autostart_countdown_seconds"
         private const val KEY_JUST_LIFT_DEFAULTS = "just_lift_defaults"
         private const val KEY_PREFIX_EXERCISE = "exercise_defaults_"
     }
@@ -167,7 +171,9 @@ class SettingsPreferencesManager(
             colorScheme = settings.getInt(KEY_COLOR_SCHEME, 0),
             stallDetectionEnabled = settings.getBoolean(KEY_STALL_DETECTION, true),
             discoModeUnlocked = settings.getBoolean(KEY_DISCO_MODE_UNLOCKED, false),
-            audioRepCountEnabled = settings.getBoolean(KEY_AUDIO_REP_COUNT, false)
+            audioRepCountEnabled = settings.getBoolean(KEY_AUDIO_REP_COUNT, false),
+            summaryCountdownSeconds = settings.getInt(KEY_SUMMARY_COUNTDOWN_SECONDS, 10),
+            autoStartCountdownSeconds = settings.getInt(KEY_AUTOSTART_COUNTDOWN_SECONDS, 5)
         )
     }
 
@@ -217,6 +223,16 @@ class SettingsPreferencesManager(
     override suspend fun setAudioRepCountEnabled(enabled: Boolean) {
         settings.putBoolean(KEY_AUDIO_REP_COUNT, enabled)
         updateAndEmit { copy(audioRepCountEnabled = enabled) }
+    }
+
+    override suspend fun setSummaryCountdownSeconds(seconds: Int) {
+        settings.putInt(KEY_SUMMARY_COUNTDOWN_SECONDS, seconds)
+        updateAndEmit { copy(summaryCountdownSeconds = seconds) }
+    }
+
+    override suspend fun setAutoStartCountdownSeconds(seconds: Int) {
+        settings.putInt(KEY_AUTOSTART_COUNTDOWN_SECONDS, seconds)
+        updateAndEmit { copy(autoStartCountdownSeconds = seconds) }
     }
 
     override suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults? {
