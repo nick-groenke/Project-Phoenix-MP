@@ -775,16 +775,20 @@ private fun CycleListItem(
                     HorizontalDivider()
                     Spacer(Modifier.height(12.dp))
 
-                    // Action buttons
+                    // Action buttons - use filled tonal for visibility
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         if (!isActive) {
-                            OutlinedButton(
+                            FilledTonalButton(
                                 onClick = onActivate,
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                             ) {
                                 Icon(
                                     Icons.Default.CheckCircle,
@@ -792,13 +796,17 @@ private fun CycleListItem(
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(Modifier.width(4.dp))
-                                Text("Set Active")
+                                Text("Activate", maxLines = 1)
                             }
                         }
-                        OutlinedButton(
+                        FilledTonalButton(
                             onClick = onEdit,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
                         ) {
                             Icon(
                                 Icons.Default.Edit,
@@ -806,14 +814,15 @@ private fun CycleListItem(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text("Edit")
+                            Text("Edit", maxLines = 1)
                         }
-                        OutlinedButton(
+                        FilledTonalButton(
                             onClick = onDelete,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
                             )
                         ) {
                             Icon(
@@ -822,7 +831,7 @@ private fun CycleListItem(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(4.dp))
-                            Text("Delete")
+                            Text("Delete", maxLines = 1)
                         }
                     }
                 }
