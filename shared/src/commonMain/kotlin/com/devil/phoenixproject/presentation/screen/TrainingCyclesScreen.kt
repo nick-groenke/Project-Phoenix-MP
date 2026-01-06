@@ -31,6 +31,7 @@ import com.devil.phoenixproject.data.repository.WorkoutRepository
 import com.devil.phoenixproject.domain.model.CycleDay
 import com.devil.phoenixproject.domain.model.CycleProgress
 import com.devil.phoenixproject.domain.model.CycleTemplate
+import com.devil.phoenixproject.domain.model.ExerciseConfig
 import com.devil.phoenixproject.domain.model.ProgramMode
 import com.devil.phoenixproject.domain.model.Routine
 import com.devil.phoenixproject.domain.model.TrainingCycle
@@ -323,7 +324,8 @@ fun TrainingCyclesScreen(
         is CycleCreationState.ModeConfirmation -> {
             ModeConfirmationScreen(
                 template = state.template,
-                onConfirm = { modeSelections ->
+                oneRepMaxValues = state.oneRepMaxValues,
+                onConfirm = { exerciseConfigs ->
                     creationState = CycleCreationState.Creating(state.template)
                     scope.launch {
                         try {
@@ -336,30 +338,34 @@ fun TrainingCyclesScreen(
                                 }
                             }
 
-                            // 2. Convert template using TemplateConverter (with user's mode selections and 1RM values)
+                            // 2. Extract mode selections from ExerciseConfig for TemplateConverter
+                            // (Until TemplateConverter is updated to accept ExerciseConfig directly)
+                            val modeSelections = exerciseConfigs.mapValues { (_, config) -> config.mode }
+
+                            // 3. Convert template using TemplateConverter (with user's mode selections and 1RM values)
                             val conversionResult = templateConverter.convert(
                                 template = state.template,
                                 modeSelections = modeSelections,
                                 oneRepMaxValues = state.oneRepMaxValues
                             )
 
-                            // 3. Save routines FIRST (CycleDay has FK to Routine)
+                            // 4. Save routines FIRST (CycleDay has FK to Routine)
                             // CRITICAL: Must await each save - workoutRepository.saveRoutine is suspend
                             // Using viewModel.saveRoutine() was fire-and-forget (launched coroutine without await)
                             conversionResult.routines.forEach { routine ->
                                 workoutRepository.saveRoutine(routine)
                             }
 
-                            // 4. Save cycle via TrainingCycleRepository (routines now guaranteed to exist)
+                            // 5. Save cycle via TrainingCycleRepository (routines now guaranteed to exist)
                             cycleRepository.saveCycle(conversionResult.cycle)
 
-                            // 5. Show warnings if any exercises weren't found
+                            // 6. Show warnings if any exercises weren't found
                             if (conversionResult.warnings.isNotEmpty()) {
                                 Logger.w { "Some exercises not found: ${conversionResult.warnings}" }
                                 showWarningDialog = conversionResult.warnings
                             }
 
-                            // 6. Navigate back or reset state
+                            // 7. Navigate back or reset state
                             creationState = CycleCreationState.Idle
                             Logger.d { "Successfully created cycle: ${state.template.name}" }
                         } catch (e: Exception) {
