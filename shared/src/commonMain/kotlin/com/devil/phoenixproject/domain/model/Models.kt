@@ -102,6 +102,9 @@ sealed class WorkoutState {
 /**
  * Program modes that use command 0x4F (96-byte frame)
  * Note: Official app uses 0x4F, NOT 0x04
+ *
+ * Echo mode (modeValue 10) uses a different BLE command (0x4E) but is included
+ * here for unified mode selection in the UI layer.
  */
 sealed class ProgramMode(val modeValue: Int, val displayName: String) {
     object OldSchool : ProgramMode(0, "Old School")
@@ -109,6 +112,7 @@ sealed class ProgramMode(val modeValue: Int, val displayName: String) {
     object TUT : ProgramMode(3, "TUT")
     object TUTBeast : ProgramMode(4, "TUT Beast")
     object EccentricOnly : ProgramMode(6, "Eccentric Only")
+    object Echo : ProgramMode(10, "Echo")
 
     companion object {
         @Suppress("unused")
@@ -118,6 +122,7 @@ sealed class ProgramMode(val modeValue: Int, val displayName: String) {
             3 -> TUT
             4 -> TUTBeast
             6 -> EccentricOnly
+            10 -> Echo
             else -> OldSchool
         }
     }
@@ -176,6 +181,7 @@ sealed class WorkoutType {
             ProgramMode.TUT -> WorkoutMode.TUT
             ProgramMode.TUTBeast -> WorkoutMode.TUTBeast
             ProgramMode.EccentricOnly -> WorkoutMode.EccentricOnly
+            ProgramMode.Echo -> WorkoutMode.Echo(EchoLevel.HARD) // Default level when converting from ProgramMode
         }
         is Echo -> WorkoutMode.Echo(level)
     }

@@ -348,5 +348,6 @@ private fun getProgramModeDescription(mode: ProgramMode): String {
         is ProgramMode.TUT -> "Time under tension focused"
         is ProgramMode.TUTBeast -> "Extended time under tension"
         is ProgramMode.EccentricOnly -> "Eccentric-only training"
+        is ProgramMode.Echo -> "Adaptive bodyweight resistance"
     }
 }

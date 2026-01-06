@@ -12,60 +12,28 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
-import com.devil.phoenixproject.domain.model.EccentricLoad
-import com.devil.phoenixproject.domain.model.EchoLevel
 import com.devil.phoenixproject.domain.model.ProgramMode
-import com.devil.phoenixproject.domain.model.WorkoutType
 import com.devil.phoenixproject.ui.theme.Spacing
 
 /**
- * UI representation of selectable modes.
- * Includes both ProgramModes and Echo.
- */
-enum class SelectableMode(val abbreviation: String, val displayName: String) {
-    OLD_SCHOOL("OLD", "Old School"),
-    TUT("TUT", "TUT"),
-    PUMP("PUMP", "Pump"),
-    ECCENTRIC("ECC", "Eccentric"),
-    TUT_BEAST("BEAST", "TUT Beast"),
-    ECHO("ECHO", "Echo");
-
-    fun toWorkoutType(
-        echoLevel: EchoLevel = EchoLevel.HARD,
-        eccentricLoad: EccentricLoad = EccentricLoad.LOAD_100
-    ): WorkoutType = when (this) {
-        OLD_SCHOOL -> WorkoutType.Program(ProgramMode.OldSchool)
-        TUT -> WorkoutType.Program(ProgramMode.TUT)
-        PUMP -> WorkoutType.Program(ProgramMode.Pump)
-        ECCENTRIC -> WorkoutType.Program(ProgramMode.EccentricOnly)
-        TUT_BEAST -> WorkoutType.Program(ProgramMode.TUTBeast)
-        ECHO -> WorkoutType.Echo(echoLevel, eccentricLoad)
-    }
-
-    companion object {
-        fun fromWorkoutType(workoutType: WorkoutType): SelectableMode = when (workoutType) {
-            is WorkoutType.Program -> when (workoutType.mode) {
-                ProgramMode.OldSchool -> OLD_SCHOOL
-                ProgramMode.TUT -> TUT
-                ProgramMode.Pump -> PUMP
-                ProgramMode.EccentricOnly -> ECCENTRIC
-                ProgramMode.TUTBeast -> TUT_BEAST
-            }
-            is WorkoutType.Echo -> ECHO
-        }
-    }
-}
-
-/**
  * Segmented pill selector for workout modes.
- * Shows all 6 modes (5 ProgramModes + Echo) as tappable pills.
+ * Shows all 6 program modes as tappable pills.
  */
 @Composable
 fun ModeSelector(
-    selectedMode: SelectableMode,
-    onModeSelected: (SelectableMode) -> Unit,
+    selectedMode: ProgramMode,
+    onModeSelected: (ProgramMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val modes = listOf(
+        ProgramMode.OldSchool,
+        ProgramMode.TUT,
+        ProgramMode.Pump,
+        ProgramMode.EccentricOnly,
+        ProgramMode.TUTBeast,
+        ProgramMode.Echo
+    )
+
     Column(modifier = modifier) {
         Text(
             text = "WORKOUT MODE",
@@ -86,7 +54,7 @@ fun ModeSelector(
                 .padding(Spacing.extraSmall),
             horizontalArrangement = Arrangement.spacedBy(Spacing.extraSmall)
         ) {
-            SelectableMode.entries.forEach { mode ->
+            modes.forEach { mode ->
                 val isSelected = mode == selectedMode
 
                 Box(
@@ -105,7 +73,7 @@ fun ModeSelector(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = mode.abbreviation,
+                        text = getModeAbbreviation(mode),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                         color = if (isSelected) {
@@ -120,4 +88,16 @@ fun ModeSelector(
             }
         }
     }
+}
+
+/**
+ * Get short abbreviation for mode display in pills.
+ */
+private fun getModeAbbreviation(mode: ProgramMode): String = when (mode) {
+    ProgramMode.OldSchool -> "OLD"
+    ProgramMode.TUT -> "TUT"
+    ProgramMode.Pump -> "PUMP"
+    ProgramMode.EccentricOnly -> "ECC"
+    ProgramMode.TUTBeast -> "BEAST"
+    ProgramMode.Echo -> "ECHO"
 }

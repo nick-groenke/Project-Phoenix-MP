@@ -7,8 +7,7 @@ package com.devil.phoenixproject.domain.model
  */
 data class ExerciseConfig(
     val exerciseName: String,
-    // Changed from ProgramMode to WorkoutType to support Echo mode
-    val workoutType: WorkoutType = WorkoutType.Program(ProgramMode.OldSchool),
+    val mode: ProgramMode = ProgramMode.OldSchool,
 
     // Weight (used by all cable modes except Echo)
     val weightPerCableKg: Float = 0f,
@@ -16,8 +15,11 @@ data class ExerciseConfig(
     // OldSchool-specific
     val autoProgression: Boolean = true,
 
-    // Eccentric-specific (Echo also uses this, but stores in WorkoutType.Echo.eccentricLoad)
-    val eccentricLoadPercent: Int = 100 // 100-150%, maps to EccentricLoad enum values
+    // Eccentric-specific (EccentricOnly and Echo modes)
+    val eccentricLoadPercent: Int = 100, // 100-150%
+
+    // Echo-specific
+    val echoLevel: EchoLevel = EchoLevel.HARD
 ) {
     companion object {
         /**
@@ -28,13 +30,13 @@ data class ExerciseConfig(
             suggestedMode: ProgramMode?,
             oneRepMaxKg: Float? = null
         ): ExerciseConfig {
-            val workoutType = WorkoutType.Program(suggestedMode ?: ProgramMode.OldSchool)
+            val mode = suggestedMode ?: ProgramMode.OldSchool
             // Default weight is 70% of 1RM if available
             val weight = oneRepMaxKg?.let { (it * 0.70f * 2).toInt() / 2f } ?: 0f
 
             return ExerciseConfig(
                 exerciseName = exerciseName,
-                workoutType = workoutType,
+                mode = mode,
                 weightPerCableKg = weight
             )
         }
@@ -43,15 +45,10 @@ data class ExerciseConfig(
     /**
      * Helper to get display name for the selected mode.
      */
-    val modeDisplayName: String get() = workoutType.displayName
+    val modeDisplayName: String get() = mode.displayName
 
     /**
      * Check if this config is for Echo mode.
      */
-    val isEchoMode: Boolean get() = workoutType is WorkoutType.Echo
-
-    /**
-     * Get the EchoLevel if in Echo mode, null otherwise.
-     */
-    val echoLevel: EchoLevel? get() = (workoutType as? WorkoutType.Echo)?.level
+    val isEchoMode: Boolean get() = mode == ProgramMode.Echo
 }

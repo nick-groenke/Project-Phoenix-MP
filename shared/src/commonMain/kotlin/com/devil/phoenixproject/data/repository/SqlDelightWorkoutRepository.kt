@@ -319,8 +319,9 @@ class SqlDelightWorkoutRepository(
                     ProgramMode.TUT -> "TUT"
                     ProgramMode.TUTBeast -> "TUTBeast"
                     ProgramMode.EccentricOnly -> "EccentricOnly"
+                    ProgramMode.Echo -> "Echo"  // Echo is now in ProgramMode but still uses WorkoutType.Echo at runtime
                 }
-                "Program:$modeName"
+                if (workoutType.mode == ProgramMode.Echo) "Echo" else "Program:$modeName"
             }
             is WorkoutType.Echo -> "Echo"  // EchoLevel and EccentricLoad are stored separately in DB columns
         }
