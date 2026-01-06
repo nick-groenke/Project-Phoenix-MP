@@ -42,7 +42,7 @@ fun CountdownDropdown(
             colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
             modifier = Modifier
                 .fillMaxWidth()
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable)
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
         )
 
         ExposedDropdownMenu(
