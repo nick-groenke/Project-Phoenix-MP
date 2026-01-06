@@ -1618,6 +1618,52 @@ class MainViewModel constructor(
         return routine.exercises.getOrNull(_currentExerciseIndex.value)
     }
 
+    // ========== Resume/Restart Support (Issue #101) ==========
+
+    /**
+     * Data class for resumable workout progress information.
+     * Used to display progress in the Resume/Restart dialog.
+     */
+    data class ResumableProgressInfo(
+        val exerciseName: String,
+        val currentSet: Int,
+        val totalSets: Int,
+        val currentExercise: Int,
+        val totalExercises: Int
+    )
+
+    /**
+     * Check if there's resumable progress for a specific routine.
+     * Returns true if the same routine is loaded with progress beyond set 1.
+     */
+    fun hasResumableProgress(routineId: String): Boolean {
+        val loaded = _loadedRoutine.value ?: return false
+        if (loaded.id != routineId) return false
+        // Check if we have any progress (beyond the initial state)
+        if (_currentSetIndex.value > 0 || _currentExerciseIndex.value > 0) {
+            // Validate that indices are still valid for the routine
+            val exercise = loaded.exercises.getOrNull(_currentExerciseIndex.value) ?: return false
+            return _currentSetIndex.value < exercise.setReps.size
+        }
+        return false
+    }
+
+    /**
+     * Get information about resumable progress for display in dialog.
+     * Returns null if no valid resumable progress exists.
+     */
+    fun getResumableProgressInfo(): ResumableProgressInfo? {
+        val routine = _loadedRoutine.value ?: return null
+        val exercise = routine.exercises.getOrNull(_currentExerciseIndex.value) ?: return null
+        return ResumableProgressInfo(
+            exerciseName = exercise.exercise.displayName,
+            currentSet = _currentSetIndex.value + 1,  // 1-based for display
+            totalSets = exercise.setReps.size,
+            currentExercise = _currentExerciseIndex.value + 1,  // 1-based for display
+            totalExercises = routine.exercises.size
+        )
+    }
+
     // ========== Superset Support ==========
 
     /**

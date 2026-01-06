@@ -35,6 +35,7 @@ import com.devil.phoenixproject.domain.model.TrainingCycle
 import com.devil.phoenixproject.domain.usecase.TemplateConverter
 import com.devil.phoenixproject.presentation.components.DayStrip
 import com.devil.phoenixproject.presentation.components.EmptyState
+import com.devil.phoenixproject.presentation.components.ResumeRoutineDialog
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
 import com.devil.phoenixproject.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
@@ -88,6 +89,12 @@ fun TrainingCyclesScreen(
 
     // Selected day for viewing different days in the active cycle
     var selectedDayNumber by remember { mutableStateOf<Int?>(null) }
+
+    // Resume/Restart dialog state (Issue #101)
+    var showResumeDialog by remember { mutableStateOf(false) }
+    var pendingRoutineId by remember { mutableStateOf<String?>(null) }
+    var pendingCycleId by remember { mutableStateOf<String?>(null) }
+    var pendingDayNumber by remember { mutableStateOf(0) }
 
     // When active cycle changes, reset selection to current day
     LaunchedEffect(activeCycle, cycleProgress) {
@@ -157,15 +164,25 @@ fun TrainingCyclesScreen(
                                 selectedDayNumber = dayNumber
                             },
                             onStartWorkout = { routineId, cycleId, dayNumber ->
-                                routineId?.let {
-                                    viewModel.ensureConnection(
-                                        onConnected = {
-                                            viewModel.loadRoutineFromCycle(it, cycleId, dayNumber)
-                                            viewModel.startWorkout()
-                                            navController.navigate(NavigationRoutes.ActiveWorkout.route)
-                                        },
-                                        onFailed = { /* Error shown via StateFlow */ }
-                                    )
+                                routineId?.let { rid ->
+                                    // Issue #101: Check for resumable progress
+                                    if (viewModel.hasResumableProgress(rid)) {
+                                        // Show resume dialog
+                                        pendingRoutineId = rid
+                                        pendingCycleId = cycleId
+                                        pendingDayNumber = dayNumber
+                                        showResumeDialog = true
+                                    } else {
+                                        // No progress - start fresh
+                                        viewModel.ensureConnection(
+                                            onConnected = {
+                                                viewModel.loadRoutineFromCycle(rid, cycleId, dayNumber)
+                                                viewModel.startWorkout()
+                                                navController.navigate(NavigationRoutes.ActiveWorkout.route)
+                                            },
+                                            onFailed = { /* Error shown via StateFlow */ }
+                                        )
+                                    }
                                 }
                             },
                             onAdvanceDay = {
@@ -444,6 +461,41 @@ fun TrainingCyclesScreen(
                 }
             }
         )
+    }
+
+    // Resume/Restart Dialog (Issue #101)
+    if (showResumeDialog) {
+        viewModel.getResumableProgressInfo()?.let { info ->
+            ResumeRoutineDialog(
+                progressInfo = info,
+                onResume = {
+                    showResumeDialog = false
+                    // Resume: skip loadRoutine to keep existing progress, just navigate and start
+                    viewModel.ensureConnection(
+                        onConnected = {
+                            viewModel.startWorkout()
+                            navController.navigate(NavigationRoutes.ActiveWorkout.route)
+                        },
+                        onFailed = { /* Error shown via StateFlow */ }
+                    )
+                },
+                onRestart = {
+                    showResumeDialog = false
+                    // Restart: call loadRoutineFromCycle to reset indices, then start
+                    pendingRoutineId?.let { rid ->
+                        viewModel.ensureConnection(
+                            onConnected = {
+                                viewModel.loadRoutineFromCycle(rid, pendingCycleId ?: "", pendingDayNumber)
+                                viewModel.startWorkout()
+                                navController.navigate(NavigationRoutes.ActiveWorkout.route)
+                            },
+                            onFailed = { /* Error shown via StateFlow */ }
+                        )
+                    }
+                },
+                onDismiss = { showResumeDialog = false }
+            )
+        }
     }
 }
 
