@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.domain.model.RoutineExercise
 import com.devil.phoenixproject.domain.model.WeightUnit
-import com.devil.phoenixproject.domain.model.WorkoutType
+import com.devil.phoenixproject.domain.model.ProgramMode
 
 /**
  * Unified exercise row that handles both standalone and superset exercises.
@@ -118,7 +118,7 @@ fun ExerciseRowWithConnector(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    val isEchoMode = exercise.workoutType is WorkoutType.Echo
+                    val isEchoMode = exercise.programMode == ProgramMode.Echo
                     val weightText = if (isEchoMode) {
                         "Adaptive"
                     } else {

@@ -46,15 +46,15 @@ data class SingleExerciseDefaults(
             ?: com.devil.phoenixproject.domain.model.EchoLevel.HARDER
     }
 
-    fun toWorkoutType(): com.devil.phoenixproject.domain.model.WorkoutType {
+    fun toProgramMode(): com.devil.phoenixproject.domain.model.ProgramMode {
         return when (workoutModeId) {
-            0 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.OldSchool)
-            2 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.Pump)
-            3 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.TUT)
-            4 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.TUTBeast)
-            6 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.EccentricOnly)
-            10 -> com.devil.phoenixproject.domain.model.WorkoutType.Echo(getEchoLevel(), getEccentricLoad())
-            else -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.OldSchool)
+            0 -> com.devil.phoenixproject.domain.model.ProgramMode.OldSchool
+            2 -> com.devil.phoenixproject.domain.model.ProgramMode.Pump
+            3 -> com.devil.phoenixproject.domain.model.ProgramMode.TUT
+            4 -> com.devil.phoenixproject.domain.model.ProgramMode.TUTBeast
+            6 -> com.devil.phoenixproject.domain.model.ProgramMode.EccentricOnly
+            10 -> com.devil.phoenixproject.domain.model.ProgramMode.Echo
+            else -> com.devil.phoenixproject.domain.model.ProgramMode.OldSchool
         }
     }
 }
@@ -83,15 +83,15 @@ data class JustLiftDefaults(
             ?: com.devil.phoenixproject.domain.model.EchoLevel.HARDER
     }
 
-    fun toWorkoutType(): com.devil.phoenixproject.domain.model.WorkoutType {
+    fun toProgramMode(): com.devil.phoenixproject.domain.model.ProgramMode {
         return when (workoutModeId) {
-            0 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.OldSchool)
-            2 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.Pump)
-            3 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.TUT)
-            4 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.TUTBeast)
-            6 -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.EccentricOnly)
-            10 -> com.devil.phoenixproject.domain.model.WorkoutType.Echo(getEchoLevel(), getEccentricLoad())
-            else -> com.devil.phoenixproject.domain.model.WorkoutType.Program(com.devil.phoenixproject.domain.model.ProgramMode.OldSchool)
+            0 -> com.devil.phoenixproject.domain.model.ProgramMode.OldSchool
+            2 -> com.devil.phoenixproject.domain.model.ProgramMode.Pump
+            3 -> com.devil.phoenixproject.domain.model.ProgramMode.TUT
+            4 -> com.devil.phoenixproject.domain.model.ProgramMode.TUTBeast
+            6 -> com.devil.phoenixproject.domain.model.ProgramMode.EccentricOnly
+            10 -> com.devil.phoenixproject.domain.model.ProgramMode.Echo
+            else -> com.devil.phoenixproject.domain.model.ProgramMode.OldSchool
         }
     }
 }

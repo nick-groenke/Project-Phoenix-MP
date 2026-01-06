@@ -4,7 +4,6 @@ import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.domain.model.EchoLevel
 import com.devil.phoenixproject.domain.model.ProgramMode
 import com.devil.phoenixproject.domain.model.WorkoutParameters
-import com.devil.phoenixproject.domain.model.WorkoutType
 
 /**
  * BLE Packet Factory - Builds binary protocol frames for Vitruvian device communication
@@ -103,13 +102,13 @@ object BlePacketFactory {
      * For full protocol support, use createProgramParams() instead.
      */
     fun createWorkoutCommand(
-        workoutType: WorkoutType.Program,
+        programMode: ProgramMode,
         weightPerCableKg: Float,
         targetReps: Int
     ): ByteArray {
         val buffer = ByteArray(25)
         buffer[0] = BleConstants.Commands.REGULAR_COMMAND
-        buffer[1] = workoutType.mode.modeValue.toByte()
+        buffer[1] = programMode.modeValue.toByte()
 
         val weightScaled = (weightPerCableKg * 100).toInt()
         buffer[2] = (weightScaled and 0xFF).toByte()
@@ -169,10 +168,8 @@ object BlePacketFactory {
         frame[0x2f] = 0x00
 
         // Get the mode profile block (32 bytes for offsets 0x30-0x4F)
-        val profileMode = when (val workoutType = params.workoutType) {
-            is WorkoutType.Program -> if (params.isJustLift) ProgramMode.OldSchool else workoutType.mode
-            is WorkoutType.Echo -> ProgramMode.OldSchool
-        }
+        // For Echo mode, use OldSchool profile since Echo uses a different BLE command (0x4E)
+        val profileMode = if (params.isJustLift || params.isEchoMode) ProgramMode.OldSchool else params.programMode
         val profile = getModeProfile(profileMode)
         profile.copyInto(frame, 0x30)
 
@@ -186,7 +183,7 @@ object BlePacketFactory {
         val totalWeightKg = adjustedWeightPerCable
         val effectiveKg = adjustedWeightPerCable + 10.0f
 
-        Logger.d("BlePacketFactory") { "=== WORKOUT MODE: ${params.workoutType}, Weight: ${params.weightPerCableKg}kg ===" }
+        Logger.d("BlePacketFactory") { "=== WORKOUT MODE: ${params.programMode}, Weight: ${params.weightPerCableKg}kg ===" }
 
         putFloatLE(frame, 0x54, effectiveKg)
         putFloatLE(frame, 0x58, totalWeightKg)

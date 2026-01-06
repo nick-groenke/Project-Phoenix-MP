@@ -27,9 +27,11 @@ import androidx.navigation.NavController
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.data.repository.TrainingCycleRepository
+import com.devil.phoenixproject.data.repository.WorkoutRepository
 import com.devil.phoenixproject.domain.model.CycleDay
 import com.devil.phoenixproject.domain.model.CycleProgress
 import com.devil.phoenixproject.domain.model.CycleTemplate
+import com.devil.phoenixproject.domain.model.ProgramMode
 import com.devil.phoenixproject.domain.model.Routine
 import com.devil.phoenixproject.domain.model.TrainingCycle
 import com.devil.phoenixproject.domain.usecase.TemplateConverter
@@ -71,6 +73,7 @@ fun TrainingCyclesScreen(
 ) {
     val cycleRepository: TrainingCycleRepository = koinInject()
     val exerciseRepository: ExerciseRepository = koinInject()
+    val workoutRepository: WorkoutRepository = koinInject()
     val templateConverter: TemplateConverter = koinInject()
     val scope = rememberCoroutineScope()
 
@@ -260,17 +263,10 @@ fun TrainingCyclesScreen(
         UnifiedCycleCreationSheet(
             onSelectTemplate = { template ->
                 showCreationSheet = false
-                // Check if template needs 1RM input
-                val needsOneRepMax = template.requiresOneRepMax ||
-                    template.days.any { day ->
-                        day.routine?.exercises?.any { it.isPercentageBased } == true
-                    }
-
-                if (needsOneRepMax) {
-                    creationState = CycleCreationState.OneRepMaxInput(template)
-                } else {
-                    creationState = CycleCreationState.ModeConfirmation(template, emptyMap())
-                }
+                // Always show 1RM input screen for ALL templates
+                // This allows users to optionally enter their maxes for better weight suggestions
+                // Users can skip if they don't want to enter 1RM values
+                creationState = CycleCreationState.OneRepMaxInput(template)
             },
             onCreateCustom = { dayCount ->
                 showCreationSheet = false
@@ -283,12 +279,23 @@ fun TrainingCyclesScreen(
     // OneRepMaxInputScreen
     when (val state = creationState) {
         is CycleCreationState.OneRepMaxInput -> {
-            // Extract main lift names from template exercises
-            val mainLiftNames = state.template.days
+            // Extract exercise names from template - show all cable exercises (not just percentage-based)
+            // This allows users to enter 1RM values for any exercise they want
+            // Priority: percentage-based exercises first, then other cable exercises
+            val percentageBasedExercises = state.template.days
                 .flatMap { it.routine?.exercises ?: emptyList() }
                 .filter { it.isPercentageBased }
                 .map { it.exerciseName }
                 .distinct()
+
+            val otherCableExercises = state.template.days
+                .flatMap { it.routine?.exercises ?: emptyList() }
+                .filter { !it.isPercentageBased && it.suggestedMode != null } // Cable exercises only
+                .map { it.exerciseName }
+                .distinct()
+                .filter { it !in percentageBasedExercises } // Avoid duplicates
+
+            val mainLiftNames = percentageBasedExercises + otherCableExercises
 
             // Load existing 1RM values
             val existingOneRepMaxValues = remember { mutableStateMapOf<String, Float>() }
@@ -329,15 +336,21 @@ fun TrainingCyclesScreen(
                                 }
                             }
 
-                            // 2. Convert template using TemplateConverter
-                            val conversionResult = templateConverter.convert(state.template)
+                            // 2. Convert template using TemplateConverter (with user's mode selections and 1RM values)
+                            val conversionResult = templateConverter.convert(
+                                template = state.template,
+                                modeSelections = modeSelections,
+                                oneRepMaxValues = state.oneRepMaxValues
+                            )
 
                             // 3. Save routines FIRST (CycleDay has FK to Routine)
+                            // CRITICAL: Must await each save - workoutRepository.saveRoutine is suspend
+                            // Using viewModel.saveRoutine() was fire-and-forget (launched coroutine without await)
                             conversionResult.routines.forEach { routine ->
-                                viewModel.saveRoutine(routine)
+                                workoutRepository.saveRoutine(routine)
                             }
 
-                            // 4. Save cycle via TrainingCycleRepository (after routines exist)
+                            // 4. Save cycle via TrainingCycleRepository (routines now guaranteed to exist)
                             cycleRepository.saveCycle(conversionResult.cycle)
 
                             // 5. Show warnings if any exercises weren't found

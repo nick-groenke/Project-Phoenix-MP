@@ -1507,11 +1507,11 @@ class KableBleRepository : BleRepository {
         // Stop disco mode if running (safety - don't interfere with workout)
         stopDiscoMode()
 
-        log.i { "Starting workout with params: type=${params.workoutType}, weight=${params.weightPerCableKg}kg" }
+        log.i { "Starting workout with params: type=${params.programMode}, weight=${params.weightPerCableKg}kg" }
         return try {
             // Build workout start command based on parameters
             // Format matches parent repo protocol
-            val modeCode = params.workoutType.modeValue.toByte()
+            val modeCode = params.programMode.modeValue.toByte()
             val weightBytes = (params.weightPerCableKg * 100).toInt()  // Weight in hectograms
             val weightLow = (weightBytes and 0xFF).toByte()
             val weightHigh = ((weightBytes shr 8) and 0xFF).toByte()

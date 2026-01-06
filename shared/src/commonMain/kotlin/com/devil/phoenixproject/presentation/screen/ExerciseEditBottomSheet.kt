@@ -70,9 +70,9 @@ fun ExerciseEditBottomSheet(
 
     // Fetch initial PR for exercise
     var initialPR by remember { mutableStateOf<PersonalRecord?>(null) }
-    LaunchedEffect(exercise.exercise.id, exercise.workoutType) {
+    LaunchedEffect(exercise.exercise.id, exercise.programMode) {
         exercise.exercise.id?.let { exerciseId ->
-            val workoutMode = exercise.workoutType.toWorkoutMode()
+            val workoutMode = exercise.programMode.toWorkoutMode(exercise.echoLevel)
             if (workoutMode !is WorkoutMode.Echo) {
                 try {
                     val modeString = when (workoutMode) {

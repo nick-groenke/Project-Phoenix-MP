@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.devil.phoenixproject.domain.model.RoutineExercise
 import com.devil.phoenixproject.domain.model.WeightUnit
-import com.devil.phoenixproject.domain.model.WorkoutType
+import com.devil.phoenixproject.domain.model.ProgramMode
 import com.devil.phoenixproject.ui.theme.SupersetTheme
 
 /**
@@ -137,7 +137,7 @@ fun SupersetExerciseItem(
                         text = exercise.exercise.name,
                         style = MaterialTheme.typography.bodyLarge
                     )
-                    val isEchoMode = exercise.workoutType is WorkoutType.Echo
+                    val isEchoMode = exercise.programMode == ProgramMode.Echo
                     val weightText = if (isEchoMode) {
                         "Adaptive"
                     } else {

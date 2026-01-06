@@ -44,6 +44,11 @@ data class ConversionResult(
 class TemplateConverter(
     private val exerciseRepository: ExerciseRepository
 ) {
+    companion object {
+        /** Default percentage of 1RM used for starting weights (70%) */
+        const val DEFAULT_STARTING_WEIGHT_PERCENT = 0.70f
+    }
+
     /**
      * Convert a CycleTemplate to a TrainingCycle with concrete routines.
      *
@@ -53,14 +58,21 @@ class TemplateConverter(
      *    - Generates a UUID for the routine
      *    - Resolves all TemplateExercise names to actual Exercise entities
      *    - Creates RoutineExercise instances with proper configuration
+     *    - Calculates starting weights from 1RM values if provided
      *    - Creates PlannedSet instances for percentage-based sets (5/3/1)
      *    - Tracks any exercises that couldn't be found
      * 3. Returns ConversionResult with cycle, routines, and warnings
      *
      * @param template The cycle template to convert
+     * @param modeSelections User-selected modes for exercises (overrides template defaults)
+     * @param oneRepMaxValues 1RM values for exercises (used to calculate starting weights)
      * @return ConversionResult containing the cycle, routines, and any warnings
      */
-    suspend fun convert(template: CycleTemplate): ConversionResult {
+    suspend fun convert(
+        template: CycleTemplate,
+        modeSelections: Map<String, ProgramMode> = emptyMap(),
+        oneRepMaxValues: Map<String, Float> = emptyMap()
+    ): ConversionResult {
         val cycleId = generateUUID()
         val warnings = mutableListOf<String>()
         val routines = mutableListOf<Routine>()
@@ -96,6 +108,33 @@ class TemplateConverter(
                         continue
                     }
 
+                    // Determine the workout mode:
+                    // 1. User selection (from ModeConfirmationScreen) takes priority
+                    // 2. Fall back to template's suggested mode
+                    // 3. Default to OldSchool for bodyweight exercises (null suggested mode)
+                    val selectedMode = modeSelections[templateExercise.exerciseName]
+                        ?: templateExercise.suggestedMode
+                        ?: ProgramMode.OldSchool
+
+                    // Calculate starting weight from 1RM if available
+                    // For percentage-based exercises (5/3/1), weight varies per set so start at 0
+                    // For regular exercises, use 70% of 1RM as a reasonable starting point
+                    val startingWeight = if (templateExercise.isPercentageBased) {
+                        // Percentage-based exercises calculate weight per set during workout
+                        0f
+                    } else {
+                        // Look up 1RM from user input or from exercise library
+                        val oneRepMax = oneRepMaxValues[templateExercise.exerciseName]
+                            ?: exercise.oneRepMaxKg
+                            ?: 0f
+                        if (oneRepMax > 0f) {
+                            // Round to nearest 0.5kg for cleaner weights
+                            ((oneRepMax * DEFAULT_STARTING_WEIGHT_PERCENT) * 2).toInt() / 2f
+                        } else {
+                            0f
+                        }
+                    }
+
                     // Create RoutineExercise with proper configuration
                     val routineExercise = RoutineExercise(
                         id = generateUUID(),
@@ -109,11 +148,8 @@ class TemplateConverter(
                             // For regular sets, create list of same reps
                             List(templateExercise.sets) { templateExercise.reps }
                         },
-                        weightPerCableKg = 0f, // Will be set by user or auto-calculated from 1RM
-                        // For bodyweight exercises (null mode), default to OldSchool as placeholder
-                        // The UI should detect bodyweight via empty equipment and skip mode selection
-                        workoutType = templateExercise.suggestedMode?.let { WorkoutType.Program(it) }
-                            ?: WorkoutType.Program(ProgramMode.OldSchool),
+                        weightPerCableKg = startingWeight,
+                        programMode = selectedMode,
                         isAMRAP = templateExercise.percentageSets?.any { it.isAmrap } ?: false
                     )
 

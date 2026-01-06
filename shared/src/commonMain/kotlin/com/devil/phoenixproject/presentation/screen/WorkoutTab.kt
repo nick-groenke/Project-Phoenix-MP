@@ -351,7 +351,7 @@ fun WorkoutTab(
                             nextExerciseName = loadedRoutine?.exercises?.getOrNull(currentExerciseIndex)?.exercise?.name ?: "Exercise",
                             nextExerciseWeight = workoutParameters.weightPerCableKg,
                             nextExerciseReps = workoutParameters.reps,
-                            nextExerciseMode = workoutParameters.workoutType.displayName,
+                            nextExerciseMode = workoutParameters.programMode.displayName,
                             currentExerciseIndex = if (loadedRoutine != null) currentExerciseIndex else null,
                             totalExercises = loadedRoutine?.exercises?.size,
                             formatWeight = { weight -> formatWeight(weight, weightUnit) },
@@ -363,7 +363,7 @@ fun WorkoutTab(
                 is WorkoutState.SetSummary -> {
                     SetSummaryCard(
                         summary = workoutState,
-                        workoutMode = workoutParameters.workoutType.displayName,
+                        workoutMode = workoutParameters.programMode.displayName,
                         weightUnit = weightUnit,
                         kgToDisplay = kgToDisplay,
                         formatWeight = formatWeight,
@@ -382,7 +382,7 @@ fun WorkoutTab(
                         totalSets = workoutState.totalSets,
                         nextExerciseWeight = workoutParameters.weightPerCableKg,
                         nextExerciseReps = workoutParameters.reps,
-                        nextExerciseMode = workoutParameters.workoutType.displayName,
+                        nextExerciseMode = workoutParameters.programMode.displayName,
                         currentExerciseIndex = if (loadedRoutine != null) currentExerciseIndex else null,
                         totalExercises = loadedRoutine?.exercises?.size,
                         weightUnit = weightUnit,
@@ -1345,13 +1345,14 @@ fun CurrentExerciseCard(
                     currentExercise.setReps.joinToString(", ")
                 }
 
-                val descriptionText = if (currentExercise.workoutType is WorkoutType.Echo) {
+                val isExerciseEcho = currentExercise.programMode == ProgramMode.Echo
+                val descriptionText = if (isExerciseEcho) {
                     val cableText = when (currentExercise.cableConfig) {
                         CableConfiguration.SINGLE -> " (Single)"
                         CableConfiguration.DOUBLE -> " (Double)"
                         else -> ""
                     }
-                    "$repsText reps$cableText - ${currentExercise.workoutType.displayName} - Adaptive"
+                    "$repsText reps$cableText - ${currentExercise.programMode.displayName} - Adaptive"
                 } else {
                     val baseWeightText = if (currentExercise.setWeightsPerCableKg.isNotEmpty()) {
                         val displayWeights = currentExercise.setWeightsPerCableKg.map { kgToDisplay(it) }
@@ -1374,7 +1375,7 @@ fun CurrentExerciseCard(
                         else -> baseWeightText
                     }
 
-                    "$repsText @ $weightText - ${currentExercise.workoutType.displayName}"
+                    "$repsText @ $weightText - ${currentExercise.programMode.displayName}"
                 }
 
                 Text(
@@ -1383,10 +1384,10 @@ fun CurrentExerciseCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             } else {
-                val descriptionText = if (workoutParameters.workoutType is WorkoutType.Echo) {
-                    "${workoutParameters.reps} reps - ${workoutParameters.workoutType.displayName} - Adaptive"
+                val descriptionText = if (workoutParameters.isEchoMode) {
+                    "${workoutParameters.reps} reps - ${workoutParameters.programMode.displayName} - Adaptive"
                 } else {
-                    "${workoutParameters.reps} reps @ ${formatWeight(workoutParameters.weightPerCableKg)}/cable - ${workoutParameters.workoutType.displayName}"
+                    "${workoutParameters.reps} reps @ ${formatWeight(workoutParameters.weightPerCableKg)}/cable - ${workoutParameters.programMode.displayName}"
                 }
 
                 Text(
@@ -2042,7 +2043,7 @@ fun WorkoutSetupDialog(
                     onExpandedChange = { showModeMenu = !showModeMenu }
                 ) {
                     OutlinedTextField(
-                        value = workoutParameters.workoutType.displayName,
+                        value = workoutParameters.programMode.displayName,
                         onValueChange = {},
                         readOnly = true,
                         label = { Text(modeLabel) },
@@ -2061,21 +2062,21 @@ fun WorkoutSetupDialog(
                         DropdownMenuItem(
                             text = { Text("Old School") },
                             onClick = {
-                                onUpdateParameters(workoutParameters.copy(workoutType = WorkoutType.Program(ProgramMode.OldSchool)))
+                                onUpdateParameters(workoutParameters.copy(programMode = ProgramMode.OldSchool))
                                 showModeMenu = false
                             }
                         )
                         DropdownMenuItem(
                             text = { Text("Pump") },
                             onClick = {
-                                onUpdateParameters(workoutParameters.copy(workoutType = WorkoutType.Program(ProgramMode.Pump)))
+                                onUpdateParameters(workoutParameters.copy(programMode = ProgramMode.Pump))
                                 showModeMenu = false
                             }
                         )
                         DropdownMenuItem(
                             text = { Text("Eccentric Only") },
                             onClick = {
-                                onUpdateParameters(workoutParameters.copy(workoutType = WorkoutType.Program(ProgramMode.EccentricOnly)))
+                                onUpdateParameters(workoutParameters.copy(programMode = ProgramMode.EccentricOnly))
                                 showModeMenu = false
                             }
                         )
@@ -2127,7 +2128,7 @@ fun WorkoutSetupDialog(
                             .fillMaxWidth()
                             .padding(16.dp)
                     ) {
-                        if (workoutParameters.workoutType is WorkoutType.Echo) {
+                        if (workoutParameters.isEchoMode) {
                             Text(
                                 "Weight per cable",
                                 style = MaterialTheme.typography.titleLarge,
@@ -2226,15 +2227,14 @@ fun WorkoutSetupDialog(
                     }
                 }
 
-                // Progression/Regression UI (only for certain modes)
-                val programMode = (workoutParameters.workoutType as? WorkoutType.Program)?.mode
-                val isProgramMode = programMode != null
-                if (isProgramMode && (programMode == ProgramMode.Pump ||
-                    programMode == ProgramMode.OldSchool ||
-                    programMode == ProgramMode.EccentricOnly ||
-                    programMode == ProgramMode.TUT ||
-                    programMode == ProgramMode.TUTBeast)
-                ) {
+                // Progression/Regression UI (only for certain modes - not Echo)
+                val currentProgramMode = workoutParameters.programMode
+                val showProgressionUI = currentProgramMode == ProgramMode.Pump ||
+                    currentProgramMode == ProgramMode.OldSchool ||
+                    currentProgramMode == ProgramMode.EccentricOnly ||
+                    currentProgramMode == ProgramMode.TUT ||
+                    currentProgramMode == ProgramMode.TUTBeast
+                if (showProgressionUI) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
@@ -2380,8 +2380,14 @@ fun WorkoutSetupDialog(
             workoutParameters = workoutParameters,
             onDismiss = { showModeSubSelector = false },
             onSelect = { mode, eccentricLoad ->
-                val workoutType = mode.toWorkoutType(eccentricLoad ?: EccentricLoad.LOAD_100)
-                onUpdateParameters(workoutParameters.copy(workoutType = workoutType))
+                val newProgramMode = mode.toProgramMode()
+                val newEchoLevel = if (mode is WorkoutMode.Echo) mode.level else workoutParameters.echoLevel
+                val newEccentricLoad = eccentricLoad ?: workoutParameters.eccentricLoad
+                onUpdateParameters(workoutParameters.copy(
+                    programMode = newProgramMode,
+                    echoLevel = newEchoLevel,
+                    eccentricLoad = newEccentricLoad
+                ))
                 showModeSubSelector = false
             }
         )
@@ -2434,8 +2440,8 @@ fun ModeSubSelectorDialog(
         "Echo" -> {
             var selectedEchoLevel by remember {
                 mutableStateOf(
-                    if (workoutParameters.workoutType is WorkoutType.Echo) {
-                        (workoutParameters.workoutType as WorkoutType.Echo).level
+                    if (workoutParameters.isEchoMode) {
+                        workoutParameters.echoLevel
                     } else {
                         EchoLevel.HARD
                     }
@@ -2443,8 +2449,8 @@ fun ModeSubSelectorDialog(
             }
             var selectedEccentricLoad by remember {
                 mutableStateOf(
-                    if (workoutParameters.workoutType is WorkoutType.Echo) {
-                        (workoutParameters.workoutType as WorkoutType.Echo).eccentricLoad
+                    if (workoutParameters.isEchoMode) {
+                        workoutParameters.eccentricLoad
                     } else {
                         EccentricLoad.LOAD_100
                     }

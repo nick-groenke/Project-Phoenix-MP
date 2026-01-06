@@ -61,9 +61,9 @@ fun WorkoutHud(
     modifier: Modifier = Modifier
 ) {
     // Determine if we're in Echo mode
-    val isEchoMode = workoutParameters.workoutType is WorkoutType.Echo
+    val isEchoMode = workoutParameters.isEchoMode
     val pagerState = rememberPagerState(pageCount = { 3 })
-    
+
     // Determine gradient for background based on phase?
     // For now, keep it simple dark/light surface
     Scaffold(
@@ -71,7 +71,7 @@ fun WorkoutHud(
         topBar = {
             HudTopBar(
                 connectionState = connectionState,
-                workoutMode = workoutParameters.workoutType.displayName,
+                workoutMode = workoutParameters.programMode.displayName,
                 onStopWorkout = onStopWorkout
             )
         },

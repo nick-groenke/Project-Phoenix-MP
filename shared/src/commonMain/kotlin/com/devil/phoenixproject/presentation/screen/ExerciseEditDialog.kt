@@ -51,7 +51,7 @@ fun ExerciseEditBottomSheet(
     var isAMRAP by remember { mutableStateOf(exercise.isAMRAP) }
 
     // Determine if Echo mode settings should be shown
-    val isEchoMode = exercise.workoutType is WorkoutType.Echo
+    val isEchoMode = exercise.programMode == ProgramMode.Echo
 
     ModalBottomSheet(
         onDismissRequest = onDismiss

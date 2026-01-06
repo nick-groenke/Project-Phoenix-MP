@@ -137,7 +137,7 @@ class MainViewModel constructor(
 
     private val _workoutParameters = MutableStateFlow(
         WorkoutParameters(
-            workoutType = WorkoutType.Program(ProgramMode.OldSchool),
+            programMode = ProgramMode.OldSchool,
             reps = 10,
             weightPerCableKg = 10f,
             progressionRegressionKg = 0f,
@@ -812,24 +812,21 @@ class MainViewModel constructor(
             // Normal cable-based exercise
 
             // 1. Build Command - Use full 96-byte PROGRAM params (matches parent repo)
-            val command = when (val workoutType = params.workoutType) {
-                is WorkoutType.Program -> {
-                    // Full 96-byte program frame with mode profile, weight, progression
-                    BlePacketFactory.createProgramParams(params)
-                }
-                is WorkoutType.Echo -> {
-                    // 32-byte Echo control frame
-                    BlePacketFactory.createEchoControl(
-                        level = workoutType.level,
-                        warmupReps = params.warmupReps,
-                        targetReps = params.reps,
-                        isJustLift = isJustLiftMode || params.isJustLift,
-                        isAMRAP = params.isAMRAP,
-                        eccentricPct = workoutType.eccentricLoad.percentage
-                    )
-                }
+            val command = if (params.isEchoMode) {
+                // 32-byte Echo control frame
+                BlePacketFactory.createEchoControl(
+                    level = params.echoLevel,
+                    warmupReps = params.warmupReps,
+                    targetReps = params.reps,
+                    isJustLift = isJustLiftMode || params.isJustLift,
+                    isAMRAP = params.isAMRAP,
+                    eccentricPct = params.eccentricLoad.percentage
+                )
+            } else {
+                // Full 96-byte program frame with mode profile, weight, progression
+                BlePacketFactory.createProgramParams(params)
             }
-            Logger.d { "Built ${command.size}-byte workout command for ${params.workoutType}" }
+            Logger.d { "Built ${command.size}-byte workout command for ${params.programMode}" }
 
             // 2. Send INIT Command (0x0A) - ensures clean state
             // Per parent repo protocol: "Sometimes sent before start to ensure clean state"
@@ -846,7 +843,7 @@ class MainViewModel constructor(
             // This sets the workout parameters but does NOT engage the motors
             try {
                 bleRepository.sendWorkoutCommand(command)
-                Logger.i { "CONFIG command sent (0x04): ${command.size} bytes for ${params.workoutType}" }
+                Logger.i { "CONFIG command sent (0x04): ${command.size} bytes for ${params.programMode}" }
                 // Log first 16 bytes for debugging
                 val preview = command.take(16).joinToString(" ") { it.toUByte().toString(16).padStart(2, '0').uppercase() }
                 Logger.d { "Config preview: $preview ..." }
@@ -974,19 +971,18 @@ class MainViewModel constructor(
 
              // Calculate summary metrics for persistence and display
              val metrics = collectedMetrics.toList()
-             val isEcho = params.workoutType is WorkoutType.Echo
              val summary = calculateSetSummaryMetrics(
                  metrics = metrics,
                  repCount = repCount.totalReps,
                  fallbackWeightKg = params.weightPerCableKg,
-                 isEchoMode = isEcho,
+                 isEchoMode = params.isEchoMode,
                  warmupRepsCount = repCount.warmupReps,
                  workingRepsCount = repCount.workingReps
              )
 
              val session = WorkoutSession(
                  timestamp = workoutStartTime,
-                 mode = params.workoutType.displayName,
+                 mode = params.programMode.displayName,
                  reps = params.reps,
                  weightPerCableKg = params.weightPerCableKg,
                  totalReps = repCount.totalReps,
@@ -1010,10 +1006,10 @@ class MainViewModel constructor(
                  heaviestLiftKg = summary.heaviestLiftKgPerCable,
                  totalVolumeKg = summary.totalVolumeKg,
                  estimatedCalories = summary.estimatedCalories,
-                 warmupAvgWeightKg = if (isEcho) summary.warmupAvgWeightKg else null,
-                 workingAvgWeightKg = if (isEcho) summary.workingAvgWeightKg else null,
-                 burnoutAvgWeightKg = if (isEcho) summary.burnoutAvgWeightKg else null,
-                 peakWeightKg = if (isEcho) summary.peakWeightKg else null,
+                 warmupAvgWeightKg = if (params.isEchoMode) summary.warmupAvgWeightKg else null,
+                 workingAvgWeightKg = if (params.isEchoMode) summary.workingAvgWeightKg else null,
+                 burnoutAvgWeightKg = if (params.isEchoMode) summary.burnoutAvgWeightKg else null,
+                 peakWeightKg = if (params.isEchoMode) summary.peakWeightKg else null,
                  rpe = _currentSetRpe.value
              )
              workoutRepository.saveSession(session)
@@ -1444,7 +1440,9 @@ class MainViewModel constructor(
 
         _workoutParameters.update { params ->
             params.copy(
-                workoutType = exercise.workoutType,
+                programMode = exercise.programMode,
+                echoLevel = exercise.echoLevel,
+                eccentricLoad = exercise.eccentricLoad,
                 reps = setReps ?: exercise.reps,
                 weightPerCableKg = setWeight,
                 progressionRegressionKg = exercise.progressionKg,
@@ -1564,11 +1562,13 @@ class MainViewModel constructor(
         Logger.d { "Loading routine: ${routine.name}" }
         Logger.d { "  First exercise: ${firstExercise.exercise.displayName}" }
         Logger.d { "  First set weight: ${firstSetWeight}kg, reps: $firstSetReps" }
-        Logger.d { "  Workout type: ${firstExercise.workoutType.displayName}" }
+        Logger.d { "  Program mode: ${firstExercise.programMode.displayName}" }
         Logger.d { "  Duration-based: $isDurationBased (duration=${firstExercise.duration})" }
 
         val params = WorkoutParameters(
-            workoutType = firstExercise.workoutType,
+            programMode = firstExercise.programMode,
+            echoLevel = firstExercise.echoLevel,
+            eccentricLoad = firstExercise.eccentricLoad,
             reps = firstSetReps ?: 0, // AMRAP sets have null reps, use 0 as placeholder
             weightPerCableKg = firstSetWeight,
             progressionRegressionKg = firstExercise.progressionKg,
@@ -2102,9 +2102,9 @@ class MainViewModel constructor(
             val params = _workoutParameters.value
 
             // Create and send updated workout command
-            val command = if (params.workoutType is WorkoutType.Program) {
+            val command = if (!params.isEchoMode) {
                 BlePacketFactory.createWorkoutCommand(
-                    params.workoutType,
+                    params.programMode,
                     weightKg,
                     params.reps
                 )
@@ -2454,12 +2454,11 @@ class MainViewModel constructor(
             val metricsList = collectedMetrics.toList()
 
             // Calculate enhanced metrics for summary
-            val isEcho = params.workoutType is WorkoutType.Echo
             val summary = calculateSetSummaryMetrics(
                 metrics = metricsList,
                 repCount = completedReps,
                 fallbackWeightKg = params.weightPerCableKg,
-                isEchoMode = isEcho,
+                isEchoMode = params.isEchoMode,
                 warmupRepsCount = warmupReps,
                 workingRepsCount = completedReps
             )
@@ -2564,12 +2563,11 @@ class MainViewModel constructor(
         }
 
         // Calculate summary metrics for persistence
-        val isEchoMode = params.workoutType is WorkoutType.Echo
         val summary = calculateSetSummaryMetrics(
             metrics = metricsSnapshot,
             repCount = working,
             fallbackWeightKg = params.weightPerCableKg,
-            isEchoMode = isEchoMode,
+            isEchoMode = params.isEchoMode,
             warmupRepsCount = warmup,
             workingRepsCount = working
         )
@@ -2577,7 +2575,7 @@ class MainViewModel constructor(
         val session = WorkoutSession(
             id = sessionId,
             timestamp = workoutStartTime,
-            mode = params.workoutType.displayName,
+            mode = params.programMode.displayName,
             reps = params.reps,
             weightPerCableKg = measuredPerCableKg,
             progressionKg = params.progressionRegressionKg,
@@ -2603,10 +2601,10 @@ class MainViewModel constructor(
             heaviestLiftKg = summary.heaviestLiftKgPerCable,
             totalVolumeKg = summary.totalVolumeKg,
             estimatedCalories = summary.estimatedCalories,
-            warmupAvgWeightKg = if (isEchoMode) summary.warmupAvgWeightKg else null,
-            workingAvgWeightKg = if (isEchoMode) summary.workingAvgWeightKg else null,
-            burnoutAvgWeightKg = if (isEchoMode) summary.burnoutAvgWeightKg else null,
-            peakWeightKg = if (isEchoMode) summary.peakWeightKg else null,
+            warmupAvgWeightKg = if (params.isEchoMode) summary.warmupAvgWeightKg else null,
+            workingAvgWeightKg = if (params.isEchoMode) summary.workingAvgWeightKg else null,
+            burnoutAvgWeightKg = if (params.isEchoMode) summary.burnoutAvgWeightKg else null,
+            peakWeightKg = if (params.isEchoMode) summary.peakWeightKg else null,
             rpe = _currentSetRpe.value
         )
 
@@ -2620,14 +2618,13 @@ class MainViewModel constructor(
 
         // Check for personal record (skip for Just Lift and Echo modes)
         params.selectedExerciseId?.let { exerciseId ->
-            val isEchoMode = params.workoutType is WorkoutType.Echo
-            if (working > 0 && !params.isJustLift && !isEchoMode) {
+            if (working > 0 && !params.isJustLift && !params.isEchoMode) {
                 try {
                     workoutRepository.updatePRIfBetter(
                         exerciseId = exerciseId,
                         weightKg = measuredPerCableKg,
                         reps = working,
-                        mode = params.workoutType.displayName
+                        mode = params.programMode.displayName
                     )
 
                     // Check if this was a new PR by querying existing records
@@ -2639,7 +2636,7 @@ class MainViewModel constructor(
                                 exerciseName = exercise?.name ?: "Unknown Exercise",
                                 weightPerCableKg = measuredPerCableKg,
                                 reps = working,
-                                workoutMode = params.workoutType.displayName
+                                workoutMode = params.programMode.displayName
                             )
                         )
                         Logger.d("Potential PR: ${exercise?.name} - $measuredPerCableKg kg x $working reps")
@@ -2867,28 +2864,20 @@ class MainViewModel constructor(
         val params = _workoutParameters.value
         if (!params.isJustLift) return
 
-        val (eccentricLoad, echoLevel) = when (val wt = params.workoutType) {
-            is WorkoutType.Echo -> wt.eccentricLoad.percentage to wt.level.levelValue
-            is WorkoutType.Program -> 100 to 2
-        }
-
-        // Convert WorkoutType to workoutModeId (Int)
-        val workoutModeId = when (val wt = params.workoutType) {
-            is WorkoutType.Program -> wt.mode.modeValue
-            is WorkoutType.Echo -> 10
-        }
+        val eccentricLoadPct = if (params.isEchoMode) params.eccentricLoad.percentage else 100
+        val echoLevelVal = if (params.isEchoMode) params.echoLevel.levelValue else 2
 
         try {
             val defaults = com.devil.phoenixproject.data.preferences.JustLiftDefaults(
-                workoutModeId = workoutModeId,
+                workoutModeId = params.programMode.modeValue,
                 weightPerCableKg = params.weightPerCableKg.coerceAtLeast(0.1f),
                 weightChangePerRep = params.progressionRegressionKg,
-                eccentricLoadPercentage = eccentricLoad,
-                echoLevelValue = echoLevel,
+                eccentricLoadPercentage = eccentricLoadPct,
+                echoLevelValue = echoLevelVal,
                 stallDetectionEnabled = params.stallDetectionEnabled
             )
             preferencesManager.saveJustLiftDefaults(defaults)
-            Logger.d { "Saved Just Lift defaults: mode=$workoutModeId, weight=${params.weightPerCableKg}kg" }
+            Logger.d { "Saved Just Lift defaults: mode=${params.programMode.modeValue}, weight=${params.weightPerCableKg}kg" }
         } catch (e: Exception) {
             Logger.e(e) { "Failed to save Just Lift defaults: ${e.message}" }
         }
@@ -2907,10 +2896,9 @@ class MainViewModel constructor(
         val currentExercise = routine.exercises.getOrNull(_currentExerciseIndex.value) ?: return
         val exerciseId = currentExercise.exercise.id ?: return
 
-        val (eccentricLoad, echoLevel) = when (val wt = currentExercise.workoutType) {
-            is WorkoutType.Echo -> wt.eccentricLoad.percentage to wt.level.levelValue
-            is WorkoutType.Program -> 100 to 1
-        }
+        val isEchoExercise = currentExercise.programMode == ProgramMode.Echo
+        val eccentricLoadPct = if (isEchoExercise) currentExercise.eccentricLoad.percentage else 100
+        val echoLevelVal = if (isEchoExercise) currentExercise.echoLevel.levelValue else 1
 
         try {
             val setReps = currentExercise.setReps.ifEmpty { listOf(10) }
@@ -2930,12 +2918,6 @@ class MainViewModel constructor(
                 else -> emptyList() // Reset if invalid size
             }
 
-            // Convert WorkoutType to workoutModeId (Int)
-            val workoutModeId = when (val wt = currentExercise.workoutType) {
-                is WorkoutType.Program -> wt.mode.modeValue
-                is WorkoutType.Echo -> 10
-            }
-
             val defaults = com.devil.phoenixproject.data.preferences.SingleExerciseDefaults(
                 exerciseId = exerciseId,
                 cableConfig = currentExercise.cableConfig.name,
@@ -2944,9 +2926,9 @@ class MainViewModel constructor(
                 setWeightsPerCableKg = normalizedSetWeights,
                 progressionKg = currentExercise.progressionKg.coerceIn(-50f, 50f),
                 setRestSeconds = normalizedSetRest,
-                workoutModeId = workoutModeId,
-                eccentricLoadPercentage = eccentricLoad,
-                echoLevelValue = echoLevel,
+                workoutModeId = currentExercise.programMode.modeValue,
+                eccentricLoadPercentage = eccentricLoadPct,
+                echoLevelValue = echoLevelVal,
                 duration = currentExercise.duration?.takeIf { it > 0 } ?: 0,
                 isAMRAP = currentExercise.isAMRAP,
                 perSetRestTime = currentExercise.perSetRestTime
@@ -3236,7 +3218,9 @@ class MainViewModel constructor(
                         _workoutParameters.value = _workoutParameters.value.copy(
                             weightPerCableKg = setWeight,
                             reps = setReps ?: 0,
-                            workoutType = candidateExercise.workoutType,
+                            programMode = candidateExercise.programMode,
+                            echoLevel = candidateExercise.echoLevel,
+                            eccentricLoad = candidateExercise.eccentricLoad,
                             progressionRegressionKg = candidateExercise.progressionKg,
                             selectedExerciseId = candidateExercise.exercise.id,
                             isAMRAP = setReps == null,
@@ -3257,7 +3241,9 @@ class MainViewModel constructor(
                     _workoutParameters.value = _workoutParameters.value.copy(
                         weightPerCableKg = nextSetWeight,
                         reps = nextSetReps ?: 0,
-                        workoutType = nextExercise.workoutType,
+                        programMode = nextExercise.programMode,
+                        echoLevel = nextExercise.echoLevel,
+                        eccentricLoad = nextExercise.eccentricLoad,
                         progressionRegressionKg = nextExercise.progressionKg,
                         selectedExerciseId = nextExercise.exercise.id,
                         isAMRAP = nextSetReps == null,
@@ -3301,7 +3287,9 @@ class MainViewModel constructor(
                     _workoutParameters.value = _workoutParameters.value.copy(
                         weightPerCableKg = nextSetWeight,
                         reps = nextSetReps ?: 0,
-                        workoutType = targetExercise.workoutType,
+                        programMode = targetExercise.programMode,
+                        echoLevel = targetExercise.echoLevel,
+                        eccentricLoad = targetExercise.eccentricLoad,
                         progressionRegressionKg = targetExercise.progressionKg,
                         selectedExerciseId = targetExercise.exercise.id,
                         isAMRAP = nextSetReps == null,
@@ -3352,7 +3340,9 @@ class MainViewModel constructor(
                 _workoutParameters.value = _workoutParameters.value.copy(
                     weightPerCableKg = nextSetWeight,
                     reps = nextSetReps ?: 0,
-                    workoutType = nextExercise.workoutType,
+                    programMode = nextExercise.programMode,
+                    echoLevel = nextExercise.echoLevel,
+                    eccentricLoad = nextExercise.eccentricLoad,
                     progressionRegressionKg = nextExercise.progressionKg,
                     selectedExerciseId = nextExercise.exercise.id,
                     isAMRAP = nextSetReps == null,
@@ -3425,22 +3415,22 @@ class MainViewModel constructor(
 data class JustLiftDefaults(
     val weightPerCableKg: Float,
     val weightChangePerRep: Int, // In display units (kg or lbs based on user preference)
-    val workoutModeId: Int, // 0=OldSchool, 1=Pump, 2=Echo
+    val workoutModeId: Int, // 0=OldSchool, 1=Pump, 10=Echo
     val eccentricLoadPercentage: Int = 100,
     val echoLevelValue: Int = 1, // 0=Hard, 1=Harder, 2=Hardest, 3=Epic
     val stallDetectionEnabled: Boolean = true // Stall detection auto-stop toggle
 ) {
     /**
-     * Convert stored mode ID to WorkoutType
+     * Convert stored mode ID to ProgramMode
      */
-    fun toWorkoutType(): WorkoutType = when (workoutModeId) {
-        0 -> WorkoutType.Program(ProgramMode.OldSchool)
-        1 -> WorkoutType.Program(ProgramMode.Pump)
-        2 -> WorkoutType.Echo(
-            level = EchoLevel.entries.getOrElse(echoLevelValue) { EchoLevel.HARDER },
-            eccentricLoad = getEccentricLoad()
-        )
-        else -> WorkoutType.Program(ProgramMode.OldSchool)
+    fun toProgramMode(): ProgramMode = when (workoutModeId) {
+        0 -> ProgramMode.OldSchool
+        2 -> ProgramMode.Pump
+        3 -> ProgramMode.TUT
+        4 -> ProgramMode.TUTBeast
+        6 -> ProgramMode.EccentricOnly
+        10 -> ProgramMode.Echo
+        else -> ProgramMode.OldSchool
     }
 
     /**

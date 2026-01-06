@@ -130,7 +130,7 @@ fun WorkoutTabAlt(
                 onScan = onScan,
                 onCancelScan = onCancelScan,
                 exerciseName = currentExercise?.exercise?.name ?: exerciseEntity?.name ?: "Quick Workout",
-                workoutType = workoutParameters.workoutType.displayName
+                workoutType = workoutParameters.programMode.displayName
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -174,7 +174,7 @@ fun WorkoutTabAlt(
                         // Re-use existing summary component
                         SetSummaryCard(
                             summary = workoutState,
-                            workoutMode = workoutParameters.workoutType.displayName,
+                            workoutMode = workoutParameters.programMode.displayName,
                             weightUnit = weightUnit,
                             kgToDisplay = kgToDisplay,
                             formatWeight = formatWeight,
@@ -193,7 +193,7 @@ fun WorkoutTabAlt(
                             totalSets = workoutState.totalSets,
                             nextExerciseWeight = workoutParameters.weightPerCableKg,
                             nextExerciseReps = workoutParameters.reps,
-                            nextExerciseMode = workoutParameters.workoutType.displayName,
+                            nextExerciseMode = workoutParameters.programMode.displayName,
                             currentExerciseIndex = if (loadedRoutine != null) currentExerciseIndex else null,
                             totalExercises = loadedRoutine?.exercises?.size,
                             formatWeight = { weight -> formatWeight(weight, weightUnit) },
@@ -515,7 +515,7 @@ private fun AltActiveStateDashboard(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
-                                val currentSetWeightText = if (workoutParameters.workoutType is WorkoutType.Echo) {
+                                val currentSetWeightText = if (workoutParameters.isEchoMode) {
                                     "Adaptive"
                                 } else {
                                     formatWeight(workoutParameters.weightPerCableKg, weightUnit)
@@ -555,7 +555,7 @@ private fun AltActiveStateDashboard(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // Echo uses heuristic, normal uses config or live total/2
-                    val isEchoMode = workoutParameters.workoutType is WorkoutType.Echo
+                    val isEchoMode = workoutParameters.isEchoMode
                     val perCableKg = if (isEchoMode && currentHeuristicKgMax > 0) {
                         currentHeuristicKgMax
                     } else {
@@ -647,7 +647,7 @@ private fun AltIdleStateView(
                 ) {
                     Column {
                         Text("Ready to Start", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        val readyWeightText = if (workoutParameters.workoutType is WorkoutType.Echo) {
+                        val readyWeightText = if (workoutParameters.isEchoMode) {
                             "Adaptive"
                         } else {
                             formatWeight(workoutParameters.weightPerCableKg, weightUnit)
