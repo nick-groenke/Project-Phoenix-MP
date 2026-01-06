@@ -29,8 +29,8 @@ fun DayCountPickerScreen(
     onDayCountSelected: (Int) -> Unit,
     onBack: () -> Unit
 ) {
-    // Preset day counts for common cycle lengths
-    val presets = listOf(7, 14, 21, 28)
+    // Preset day counts for common training cycles (3-day full body, 4-day UL, 5-day bro, 6-day PPL, 7-day)
+    val presets = listOf(3, 4, 5, 6, 7)
 
     // State for custom input dialog
     var showCustomDialog by remember { mutableStateOf(false) }
