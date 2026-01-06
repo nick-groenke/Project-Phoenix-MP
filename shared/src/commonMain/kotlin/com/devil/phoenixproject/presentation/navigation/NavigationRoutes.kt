@@ -29,8 +29,6 @@ sealed class NavigationRoutes(val route: String) {
         }
     }
 
-    object DayCountPicker : NavigationRoutes("dayCountPicker")
-
     object CycleReview : NavigationRoutes("cycleReview/{cycleId}") {
         fun createRoute(cycleId: String) = "cycleReview/$cycleId"
     }

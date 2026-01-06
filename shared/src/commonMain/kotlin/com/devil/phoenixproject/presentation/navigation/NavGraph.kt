@@ -337,16 +337,6 @@ fun NavGraph(
             )
         }
 
-        // Day Count Picker - select number of days for new cycle
-        composable(NavigationRoutes.DayCountPicker.route) {
-            DayCountPickerScreen(
-                onDayCountSelected = { dayCount ->
-                    navController.navigate(NavigationRoutes.CycleEditor.createRoute("new", dayCount))
-                },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
         // Cycle Editor - timeline builder for rolling schedules
         composable(
             route = NavigationRoutes.CycleEditor.route,
