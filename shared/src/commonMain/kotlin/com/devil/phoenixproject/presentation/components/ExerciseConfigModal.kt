@@ -23,6 +23,15 @@ import com.devil.phoenixproject.ui.theme.Spacing
 /**
  * Modal dialog for configuring a single exercise's mode and mode-specific settings.
  * Does NOT include reps/sets/rest - those come from the template.
+ *
+ * @param exerciseName Display name of the exercise being configured
+ * @param templateSets Number of sets from the template
+ * @param templateReps Number of reps from the template (null for AMRAP)
+ * @param oneRepMaxKg User's estimated 1RM for this exercise (null if unknown)
+ * @param prWeight User's Personal Record weight for this exercise/mode (null if no PR)
+ * @param initialConfig Initial exercise configuration to edit
+ * @param onConfirm Callback when user confirms the configuration
+ * @param onDismiss Callback when user dismisses the modal
  */
 @Composable
 fun ExerciseConfigModal(
@@ -30,6 +39,7 @@ fun ExerciseConfigModal(
     templateSets: Int,
     templateReps: Int?,
     oneRepMaxKg: Float?,
+    prWeight: Float? = null,
     initialConfig: ExerciseConfig,
     onConfirm: (ExerciseConfig) -> Unit,
     onDismiss: () -> Unit
@@ -91,7 +101,8 @@ fun ExerciseConfigModal(
                         when (effectiveMode) {
                             ProgramMode.OldSchool -> OldSchoolConfigPanel(
                                 weight = config.weightPerCableKg,
-                                onWeightChange = { config = config.copy(weightPerCableKg = it) }
+                                onWeightChange = { config = config.copy(weightPerCableKg = it) },
+                                prWeight = prWeight
                             )
                             ProgramMode.TUT -> TutConfigPanel(
                                 weight = config.weightPerCableKg,
@@ -101,18 +112,21 @@ fun ExerciseConfigModal(
                                     config = config.copy(
                                         mode = if (enabled) ProgramMode.TUTBeast else ProgramMode.TUT
                                     )
-                                }
+                                },
+                                prWeight = prWeight
                             )
                             ProgramMode.TUTBeast -> { /* Handled by TUT case above */ }
                             ProgramMode.Pump -> PumpConfigPanel(
                                 weight = config.weightPerCableKg,
-                                onWeightChange = { config = config.copy(weightPerCableKg = it) }
+                                onWeightChange = { config = config.copy(weightPerCableKg = it) },
+                                prWeight = prWeight
                             )
                             ProgramMode.EccentricOnly -> EccentricConfigPanel(
                                 weight = config.weightPerCableKg,
                                 onWeightChange = { config = config.copy(weightPerCableKg = it) },
                                 eccentricPercent = config.eccentricLoadPercent,
-                                onEccentricPercentChange = { config = config.copy(eccentricLoadPercent = it) }
+                                onEccentricPercentChange = { config = config.copy(eccentricLoadPercent = it) },
+                                prWeight = prWeight
                             )
                             ProgramMode.Echo -> EchoConfigPanel(
                                 echoLevel = config.echoLevel,
@@ -209,12 +223,14 @@ private fun MetaChip(label: String, value: String) {
 @Composable
 private fun OldSchoolConfigPanel(
     weight: Float,
-    onWeightChange: (Float) -> Unit
+    onWeightChange: (Float) -> Unit,
+    prWeight: Float? = null
 ) {
     WeightStepper(
         weight = weight,
         onWeightChange = onWeightChange,
-        label = "Starting Weight"
+        label = "Starting Weight",
+        prWeight = prWeight
     )
     ModeInfoCard(
         title = "Old School",
@@ -227,9 +243,10 @@ private fun TutConfigPanel(
     weight: Float,
     onWeightChange: (Float) -> Unit,
     isBeastMode: Boolean,
-    onBeastModeChange: (Boolean) -> Unit
+    onBeastModeChange: (Boolean) -> Unit,
+    prWeight: Float? = null
 ) {
-    WeightStepper(weight = weight, onWeightChange = onWeightChange, label = "Starting Weight")
+    WeightStepper(weight = weight, onWeightChange = onWeightChange, label = "Starting Weight", prWeight = prWeight)
 
     // Beast Mode Toggle
     Row(
@@ -275,9 +292,10 @@ private fun TutConfigPanel(
 @Composable
 private fun PumpConfigPanel(
     weight: Float,
-    onWeightChange: (Float) -> Unit
+    onWeightChange: (Float) -> Unit,
+    prWeight: Float? = null
 ) {
-    WeightStepper(weight = weight, onWeightChange = onWeightChange, label = "Starting Weight")
+    WeightStepper(weight = weight, onWeightChange = onWeightChange, label = "Starting Weight", prWeight = prWeight)
     ModeInfoCard(
         title = "Pump Mode",
         description = "High volume with sustained tension for maximum blood flow and muscle volume."
@@ -289,9 +307,10 @@ private fun EccentricConfigPanel(
     weight: Float,
     onWeightChange: (Float) -> Unit,
     eccentricPercent: Int,
-    onEccentricPercentChange: (Int) -> Unit
+    onEccentricPercentChange: (Int) -> Unit,
+    prWeight: Float? = null
 ) {
-    WeightStepper(weight = weight, onWeightChange = onWeightChange, label = "Starting Weight")
+    WeightStepper(weight = weight, onWeightChange = onWeightChange, label = "Starting Weight", prWeight = prWeight)
     EccentricSlider(percent = eccentricPercent, onPercentChange = onEccentricPercentChange, label = "Eccentric Overload")
 }
 
