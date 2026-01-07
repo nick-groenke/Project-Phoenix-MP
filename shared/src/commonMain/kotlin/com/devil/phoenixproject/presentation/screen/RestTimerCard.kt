@@ -276,7 +276,7 @@ fun RestTimerCard(
                         } else {
                             // Non-Echo modes: Show weight adjuster
                             if (nextExerciseWeight != null && formatWeightWithUnit != null) {
-                                val maxWeight = if (weightUnit == WeightUnit.LB) 220f else 100f
+                                val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
                                 val weightStep = if (weightUnit == WeightUnit.LB) 1f else 0.5f
 
                                 SliderWithButtons(

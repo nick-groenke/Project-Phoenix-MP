@@ -137,7 +137,7 @@ fun ExerciseEditBottomSheet(
     }
 
     val weightSuffix = if (weightUnit == WeightUnit.LB) "lbs" else "kg"
-    val maxWeight = if (weightUnit == WeightUnit.LB) 220f else 100f
+    val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
     val weightStep = if (weightUnit == WeightUnit.LB) 0.5f else 0.25f
     val maxWeightChange = 10
 
