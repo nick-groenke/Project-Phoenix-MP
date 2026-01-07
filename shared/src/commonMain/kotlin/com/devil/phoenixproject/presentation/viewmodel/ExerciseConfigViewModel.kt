@@ -6,6 +6,7 @@ import com.devil.phoenixproject.data.repository.PersonalRecordRepository
 import com.devil.phoenixproject.domain.model.PersonalRecord
 import com.devil.phoenixproject.domain.model.EccentricLoad
 import com.devil.phoenixproject.domain.model.EchoLevel
+import com.devil.phoenixproject.domain.model.PRType
 import com.devil.phoenixproject.domain.model.RoutineExercise
 import com.devil.phoenixproject.domain.model.WeightUnit
 import com.devil.phoenixproject.domain.model.WorkoutMode
@@ -91,6 +92,16 @@ class ExerciseConfigViewModel constructor(
 
     private val _stallDetectionEnabled = MutableStateFlow(true)
     val stallDetectionEnabled: StateFlow<Boolean> = _stallDetectionEnabled.asStateFlow()
+
+    // PR percentage scaling state (Issue #57)
+    private val _usePercentOfPR = MutableStateFlow(false)
+    val usePercentOfPR: StateFlow<Boolean> = _usePercentOfPR.asStateFlow()
+
+    private val _weightPercentOfPR = MutableStateFlow(80)
+    val weightPercentOfPR: StateFlow<Int> = _weightPercentOfPR.asStateFlow()
+
+    private val _prTypeForScaling = MutableStateFlow(PRType.MAX_WEIGHT)
+    val prTypeForScaling: StateFlow<PRType> = _prTypeForScaling.asStateFlow()
 
     init {
 
@@ -185,6 +196,11 @@ class ExerciseConfigViewModel constructor(
         _echoLevel.value = exercise.echoLevel
         _stallDetectionEnabled.value = exercise.stallDetectionEnabled
 
+        // PR percentage scaling fields (Issue #57)
+        _usePercentOfPR.value = exercise.usePercentOfPR
+        _weightPercentOfPR.value = exercise.weightPercentOfPR
+        _prTypeForScaling.value = exercise.prTypeForScaling
+
         // Load PR for the current exercise and mode
         exercise.exercise.id?.let { exerciseId ->
             loadPRForExercise(exerciseId, _selectedMode.value.displayName)
@@ -265,6 +281,35 @@ class ExerciseConfigViewModel constructor(
 
     fun onStallDetectionEnabledChange(enabled: Boolean) {
         _stallDetectionEnabled.value = enabled
+    }
+
+    // PR percentage scaling handlers (Issue #57)
+    fun onUsePercentOfPRChange(enabled: Boolean) {
+        _usePercentOfPR.value = enabled
+    }
+
+    fun onWeightPercentOfPRChange(percent: Int) {
+        _weightPercentOfPR.value = percent.coerceIn(50, 120)
+    }
+
+    fun onPRTypeForScalingChange(prType: PRType) {
+        _prTypeForScaling.value = prType
+    }
+
+    /**
+     * Calculate the resolved weight based on current PR and percentage settings.
+     * Returns null if PR is not available or percentage scaling is disabled.
+     */
+    fun calculateResolvedWeight(): Float? {
+        val pr = _currentExercisePR.value ?: return null
+        if (!_usePercentOfPR.value) return null
+        val percent = _weightPercentOfPR.value
+        if (percent <= 0) return null
+        return (pr.weightPerCableKg * percent / 100f).roundToHalfKg()
+    }
+
+    private fun Float.roundToHalfKg(): Float {
+        return (this * 2).toInt() / 2f
     }
 
     fun updateReps(setId: String, reps: Int?) {
@@ -350,7 +395,11 @@ class ExerciseConfigViewModel constructor(
             } else null,
             perSetRestTime = _perSetRestTime.value,
             isAMRAP = isAMRAP,
-            stallDetectionEnabled = _stallDetectionEnabled.value
+            stallDetectionEnabled = _stallDetectionEnabled.value,
+            // PR percentage scaling fields (Issue #57)
+            usePercentOfPR = _usePercentOfPR.value,
+            weightPercentOfPR = _weightPercentOfPR.value,
+            prTypeForScaling = _prTypeForScaling.value
         )
 
         logDebug("Updated exercise to save:")
