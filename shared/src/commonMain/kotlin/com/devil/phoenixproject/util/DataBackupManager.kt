@@ -86,6 +86,17 @@ abstract class BaseDataBackupManager(
             queries.selectCycleDaysByCycle(cycle.id).executeAsList()
         }
 
+        // New tables for complete backup
+        val cycleProgress = queries.selectAllCycleProgressSync().executeAsList()
+        val cycleProgressions = queries.selectAllCycleProgressionsSync().executeAsList()
+        val plannedSets = queries.selectAllPlannedSetsSync().executeAsList()
+        val completedSets = queries.selectAllCompletedSetsSync().executeAsList()
+        val progressionEvents = queries.selectAllProgressionEventsSync().executeAsList()
+        val earnedBadges = queries.selectAllEarnedBadgesSync().executeAsList()
+        val streakHistory = queries.selectAllStreakHistorySync().executeAsList()
+        val gamificationStats = queries.selectGamificationStatsSync().executeAsOneOrNull()
+        val userProfiles = queries.selectAllUserProfilesSync().executeAsList()
+
         BackupData(
             version = 1,
             exportedAt = KmpUtils.formatTimestamp(KmpUtils.currentTimeMillis(), "yyyy-MM-dd") + "T" +
@@ -220,6 +231,105 @@ abstract class BaseDataBackupManager(
                         name = day.name,
                         routineId = day.routine_id,
                         isRestDay = day.is_rest_day != 0L
+                    )
+                },
+                cycleProgress = cycleProgress.map { cp ->
+                    CycleProgressBackup(
+                        id = cp.id,
+                        cycleId = cp.cycle_id,
+                        currentDayNumber = cp.current_day_number.toInt(),
+                        lastCompletedDate = cp.last_completed_date,
+                        cycleStartDate = cp.cycle_start_date,
+                        lastAdvancedAt = cp.last_advanced_at,
+                        completedDays = cp.completed_days,
+                        missedDays = cp.missed_days,
+                        rotationCount = cp.rotation_count.toInt()
+                    )
+                },
+                cycleProgressions = cycleProgressions.map { cprog ->
+                    CycleProgressionBackup(
+                        cycleId = cprog.cycle_id,
+                        frequencyCycles = cprog.frequency_cycles.toInt(),
+                        weightIncreasePercent = cprog.weight_increase_percent?.toFloat(),
+                        echoLevelIncrease = cprog.echo_level_increase.toInt(),
+                        eccentricLoadIncreasePercent = cprog.eccentric_load_increase_percent?.toInt()
+                    )
+                },
+                plannedSets = plannedSets.map { ps ->
+                    PlannedSetBackup(
+                        id = ps.id,
+                        routineExerciseId = ps.routine_exercise_id,
+                        setNumber = ps.set_number.toInt(),
+                        setType = ps.set_type,
+                        targetReps = ps.target_reps?.toInt(),
+                        targetWeightKg = ps.target_weight_kg?.toFloat(),
+                        targetRpe = ps.target_rpe?.toInt(),
+                        restSeconds = ps.rest_seconds?.toInt()
+                    )
+                },
+                completedSets = completedSets.map { cs ->
+                    CompletedSetBackup(
+                        id = cs.id,
+                        sessionId = cs.session_id,
+                        plannedSetId = cs.planned_set_id,
+                        setNumber = cs.set_number.toInt(),
+                        setType = cs.set_type,
+                        actualReps = cs.actual_reps.toInt(),
+                        actualWeightKg = cs.actual_weight_kg.toFloat(),
+                        loggedRpe = cs.logged_rpe?.toInt(),
+                        isPr = cs.is_pr != 0L,
+                        completedAt = cs.completed_at
+                    )
+                },
+                progressionEvents = progressionEvents.map { pe ->
+                    ProgressionEventBackup(
+                        id = pe.id,
+                        exerciseId = pe.exercise_id,
+                        suggestedWeightKg = pe.suggested_weight_kg.toFloat(),
+                        previousWeightKg = pe.previous_weight_kg.toFloat(),
+                        reason = pe.reason,
+                        userResponse = pe.user_response,
+                        actualWeightKg = pe.actual_weight_kg?.toFloat(),
+                        timestamp = pe.timestamp
+                    )
+                },
+                earnedBadges = earnedBadges.map { eb ->
+                    EarnedBadgeBackup(
+                        id = eb.id,
+                        badgeId = eb.badgeId,
+                        earnedAt = eb.earnedAt,
+                        celebratedAt = eb.celebratedAt
+                    )
+                },
+                streakHistory = streakHistory.map { sh ->
+                    StreakHistoryBackup(
+                        id = sh.id,
+                        startDate = sh.startDate,
+                        endDate = sh.endDate,
+                        length = sh.length.toInt()
+                    )
+                },
+                gamificationStats = gamificationStats?.let { gs ->
+                    GamificationStatsBackup(
+                        totalWorkouts = gs.totalWorkouts.toInt(),
+                        totalReps = gs.totalReps.toInt(),
+                        totalVolumeKg = gs.totalVolumeKg.toInt(),
+                        longestStreak = gs.longestStreak.toInt(),
+                        currentStreak = gs.currentStreak.toInt(),
+                        uniqueExercisesUsed = gs.uniqueExercisesUsed.toInt(),
+                        prsAchieved = gs.prsAchieved.toInt(),
+                        lastWorkoutDate = gs.lastWorkoutDate,
+                        streakStartDate = gs.streakStartDate,
+                        lastUpdated = gs.lastUpdated
+                    )
+                },
+                userProfiles = userProfiles.map { up ->
+                    UserProfileBackup(
+                        id = up.id,
+                        name = up.name,
+                        colorIndex = up.colorIndex.toInt(),
+                        createdAt = up.createdAt,
+                        isActive = up.isActive != 0L
                     )
                 }
             )
