@@ -272,6 +272,7 @@ fun ActiveWorkoutScreen(
             show = true,
             exerciseName = event.exerciseName,
             weight = "${viewModel.formatWeight(event.weightPerCableKg, weightUnit)}/cable × ${event.reps} reps",
+            workoutMode = event.workoutMode,
             onDismiss = { prCelebrationEvent = null },
             onSoundTrigger = { viewModel.emitPRSound() }
         )

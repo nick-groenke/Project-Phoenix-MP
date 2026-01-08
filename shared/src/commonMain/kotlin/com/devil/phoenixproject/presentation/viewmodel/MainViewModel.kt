@@ -16,6 +16,7 @@ import com.devil.phoenixproject.data.repository.WorkoutRepository
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.domain.model.*
 import com.devil.phoenixproject.domain.usecase.RepCounterFromMachine
+import com.devil.phoenixproject.domain.usecase.ResolveRoutineWeightsUseCase
 import com.devil.phoenixproject.util.BlePacketFactory
 import com.devil.phoenixproject.util.KmpLocalDate
 import com.devil.phoenixproject.util.KmpUtils
@@ -81,7 +82,8 @@ class MainViewModel constructor(
     private val repCounter: RepCounterFromMachine,
     private val preferencesManager: PreferencesManager,
     private val gamificationRepository: GamificationRepository,
-    private val trainingCycleRepository: TrainingCycleRepository
+    private val trainingCycleRepository: TrainingCycleRepository,
+    private val resolveWeightsUseCase: ResolveRoutineWeightsUseCase
 ) : ViewModel() {
 
     companion object {
@@ -832,6 +834,14 @@ class MainViewModel constructor(
                 BlePacketFactory.createProgramParams(params)
             }
             Logger.d { "Built ${command.size}-byte workout command for ${params.programMode}" }
+
+            // Task 3: Set cable configuration for handle release detection
+            // This affects whether release requires ONE cable at rest (SINGLE/EITHER)
+            // or BOTH cables at rest (DOUBLE)
+            val cableConfig = currentExercise?.cableConfig
+                ?: com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE
+            bleRepository.setCableConfiguration(cableConfig)
+            Logger.d { "Cable configuration set to: $cableConfig" }
 
             // 2. Send INIT Command (0x0A) - ensures clean state
             // Per parent repo protocol: "Sometimes sent before start to ensure clean state"
@@ -1600,6 +1610,41 @@ class MainViewModel constructor(
             return
         }
 
+        // Launch coroutine to resolve PR percentage weights before loading
+        viewModelScope.launch {
+            val resolvedRoutine = resolveRoutineWeights(routine)
+            loadRoutineInternal(resolvedRoutine)
+        }
+    }
+
+    /**
+     * Resolve PR percentage weights to absolute values for all exercises in a routine.
+     * Called at workout start time to get current weights based on latest PRs.
+     */
+    private suspend fun resolveRoutineWeights(routine: Routine): Routine {
+        val resolvedExercises = routine.exercises.map { exercise ->
+            if (exercise.usePercentOfPR) {
+                val resolved = resolveWeightsUseCase(exercise, exercise.programMode)
+                if (resolved.fallbackReason != null) {
+                    Logger.w { "PR weight fallback for ${exercise.exercise.name}: ${resolved.fallbackReason}" }
+                } else if (resolved.isFromPR) {
+                    Logger.d { "Resolved ${exercise.exercise.name} weight from PR: ${resolved.percentOfPR}% of ${resolved.usedPR}kg = ${resolved.baseWeight}kg" }
+                }
+                exercise.copy(
+                    weightPerCableKg = resolved.baseWeight,
+                    setWeightsPerCableKg = resolved.setWeights
+                )
+            } else {
+                exercise
+            }
+        }
+        return routine.copy(exercises = resolvedExercises)
+    }
+
+    /**
+     * Internal function to load a routine after weights have been resolved.
+     */
+    private fun loadRoutineInternal(routine: Routine) {
         _loadedRoutine.value = routine
         _currentExerciseIndex.value = 0
         _currentSetIndex.value = 0
@@ -2680,29 +2725,46 @@ class MainViewModel constructor(
         Logger.d("Saved workout session: $sessionId with ${metricsSnapshot.size} metrics")
 
         // Check for personal record (skip for Just Lift and Echo modes)
+        // Uses mode-specific PR lookup to track PRs separately per workout mode (#111)
         params.selectedExerciseId?.let { exerciseId ->
             if (working > 0 && !params.isJustLift && !params.isEchoMode) {
                 try {
-                    workoutRepository.updatePRIfBetter(
+                    val workoutMode = params.programMode.displayName
+                    val timestamp = currentTimeMillis()
+
+                    // Use personalRecordRepository for mode-specific PR tracking
+                    // This returns which PR types were actually broken (weight, volume, or both)
+                    val result = personalRecordRepository.updatePRsIfBetter(
                         exerciseId = exerciseId,
-                        weightKg = measuredPerCableKg,
+                        weightPerCableKg = measuredPerCableKg,
                         reps = working,
-                        mode = params.programMode.displayName
+                        workoutMode = workoutMode,
+                        timestamp = timestamp
                     )
 
-                    // Check if this was a new PR by querying existing records
-                    // For now, emit celebration event optimistically for good performance
-                    if (measuredPerCableKg >= params.weightPerCableKg && working >= params.reps) {
-                        val exercise = exerciseRepository.getExerciseById(exerciseId)
-                        _prCelebrationEvent.emit(
-                            PRCelebrationEvent(
-                                exerciseName = exercise?.name ?: "Unknown Exercise",
-                                weightPerCableKg = measuredPerCableKg,
-                                reps = working,
-                                workoutMode = params.programMode.displayName
+                    // Only celebrate if an actual PR was broken
+                    result.onSuccess { brokenPRs ->
+                        if (brokenPRs.isNotEmpty()) {
+                            val exercise = exerciseRepository.getExerciseById(exerciseId)
+                            val prTypeDescription = when {
+                                brokenPRs.contains(PRType.MAX_WEIGHT) && brokenPRs.contains(PRType.MAX_VOLUME) -> "Weight & Volume"
+                                brokenPRs.contains(PRType.MAX_WEIGHT) -> "Weight"
+                                brokenPRs.contains(PRType.MAX_VOLUME) -> "Volume"
+                                else -> ""
+                            }
+                            _prCelebrationEvent.emit(
+                                PRCelebrationEvent(
+                                    exerciseName = exercise?.name ?: "Unknown Exercise",
+                                    weightPerCableKg = measuredPerCableKg,
+                                    reps = working,
+                                    workoutMode = workoutMode,
+                                    brokenPRTypes = brokenPRs
+                                )
                             )
-                        )
-                        Logger.d("Potential PR: ${exercise?.name} - $measuredPerCableKg kg x $working reps")
+                            Logger.d("NEW PR ($prTypeDescription): ${exercise?.name} - $measuredPerCableKg kg x $working reps in $workoutMode mode")
+                        }
+                    }.onFailure { e ->
+                        Logger.e(e) { "Error updating PR: ${e.message}" }
                     }
                 } catch (e: Exception) {
                     Logger.e(e) { "Error checking PR: ${e.message}" }

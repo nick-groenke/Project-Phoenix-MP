@@ -19,20 +19,23 @@ import androidx.compose.ui.window.DialogProperties
  *
  * Features:
  * - Confetti explosion animation
- * - Pulsing "NEW PR!" text
+ * - Pulsing "NEW PR!" text with workout mode context
  * - Star icons with scale animation
  * - Auto-dismisses after celebration
  *
  * @param show Whether to show the celebration
  * @param exerciseName Name of the exercise for the PR
  * @param weight Weight achieved (formatted string)
+ * @param workoutMode Optional workout mode to display (e.g., "Old School", "Echo")
  * @param onDismiss Callback when celebration is complete
+ * @param onSoundTrigger Callback to trigger celebration sound
  */
 @Composable
 fun PRCelebrationDialog(
     show: Boolean,
     exerciseName: String,
     weight: String,
+    workoutMode: String? = null,
     onDismiss: () -> Unit,
     onSoundTrigger: () -> Unit = {}
 ) {
@@ -58,7 +61,8 @@ fun PRCelebrationDialog(
     ) {
         PRCelebrationContent(
             exerciseName = exerciseName,
-            weight = weight
+            weight = weight,
+            workoutMode = workoutMode
         )
     }
 }
@@ -66,7 +70,8 @@ fun PRCelebrationDialog(
 @Composable
 private fun PRCelebrationContent(
     exerciseName: String,
-    weight: String
+    weight: String,
+    workoutMode: String? = null
 ) {
     // Animation states
     val infiniteTransition = rememberInfiniteTransition(label = "celebration")
@@ -81,6 +86,13 @@ private fun PRCelebrationContent(
         ),
         label = "pulse"
     )
+
+    // Format the celebration title with workout mode context
+    val celebrationTitle = if (workoutMode != null) {
+        "NEW ${workoutMode.uppercase()} PR!"
+    } else {
+        "NEW PR!"
+    }
 
     Box(
         modifier = Modifier
@@ -112,9 +124,9 @@ private fun PRCelebrationContent(
                 contentDescription = "Trophy celebration"
             )
 
-            // "NEW PR!" text
+            // "NEW [MODE] PR!" text with mode context
             Text(
-                "NEW PR!",
+                celebrationTitle,
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.tertiary,

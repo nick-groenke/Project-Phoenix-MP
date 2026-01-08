@@ -33,6 +33,7 @@ import com.devil.phoenixproject.presentation.viewmodel.SetConfiguration
 import com.devil.phoenixproject.presentation.viewmodel.SetMode
 import com.devil.phoenixproject.ui.theme.Spacing
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Exercise configuration bottom sheet for SingleExerciseScreen
@@ -52,8 +53,8 @@ fun ExerciseEditBottomSheet(
     onDismiss: () -> Unit,
     buttonText: String = "Save"
 ) {
-    // Create local ViewModel instance
-    val viewModel = remember { ExerciseConfigViewModel() }
+    // Create local ViewModel instance with PersonalRecordRepository for PR lookups
+    val viewModel = remember { ExerciseConfigViewModel(personalRecordRepository) }
 
     // Fetch videos for exercise
     var videos by remember { mutableStateOf<List<ExerciseVideoEntity>>(emptyList()) }
@@ -68,34 +69,9 @@ fun ExerciseEditBottomSheet(
     }
     val preferredVideo = videos.firstOrNull { it.angle == "FRONT" } ?: videos.firstOrNull()
 
-    // Fetch initial PR for exercise
-    var initialPR by remember { mutableStateOf<PersonalRecord?>(null) }
-    LaunchedEffect(exercise.exercise.id, exercise.programMode) {
-        exercise.exercise.id?.let { exerciseId ->
-            val workoutMode = exercise.programMode.toWorkoutMode(exercise.echoLevel)
-            if (workoutMode !is WorkoutMode.Echo) {
-                try {
-                    val modeString = when (workoutMode) {
-                        is WorkoutMode.OldSchool -> "Old School"
-                        is WorkoutMode.Pump -> "Pump"
-                        is WorkoutMode.TUT -> "TUT"
-                        is WorkoutMode.TUTBeast -> "TUT Beast"
-                        is WorkoutMode.EccentricOnly -> "Eccentric Only"
-                        else -> null
-                    }
-                    modeString?.let { mode ->
-                        initialPR = personalRecordRepository.getLatestPR(exerciseId, mode)
-                    }
-                } catch (_: Exception) {
-                    initialPR = null
-                }
-            }
-        }
-    }
-
-    // Initialize the ViewModel
-    LaunchedEffect(exercise, weightUnit, initialPR) {
-        viewModel.initialize(exercise, weightUnit, kgToDisplay, displayToKg, initialPR?.weightPerCableKg)
+    // Initialize the ViewModel - PR loading is now handled internally by the ViewModel
+    LaunchedEffect(exercise, weightUnit) {
+        viewModel.initialize(exercise, weightUnit, kgToDisplay, displayToKg)
     }
 
     // Collect state from the ViewModel
@@ -110,31 +86,12 @@ fun ExerciseEditBottomSheet(
     val echoLevel by viewModel.echoLevel.collectAsState()
     val stallDetectionEnabled by viewModel.stallDetectionEnabled.collectAsState()
 
-    // Fetch current PR for selected mode
-    var currentPR by remember { mutableStateOf<PersonalRecord?>(null) }
-    LaunchedEffect(exercise.exercise.id, selectedMode) {
-        exercise.exercise.id?.let { exerciseId ->
-            if (selectedMode !is WorkoutMode.Echo) {
-                try {
-                    val modeString = when (selectedMode) {
-                        is WorkoutMode.OldSchool -> "Old School"
-                        is WorkoutMode.Pump -> "Pump"
-                        is WorkoutMode.TUT -> "TUT"
-                        is WorkoutMode.TUTBeast -> "TUT Beast"
-                        is WorkoutMode.EccentricOnly -> "Eccentric Only"
-                        else -> null
-                    }
-                    modeString?.let { mode ->
-                        currentPR = personalRecordRepository.getLatestPR(exerciseId, mode)
-                    }
-                } catch (_: Exception) {
-                    currentPR = null
-                }
-            } else {
-                currentPR = null
-            }
-        }
-    }
+    // PR weight from ViewModel - automatically updates when mode changes
+    val currentExercisePR by viewModel.currentExercisePR.collectAsState()
+
+    // PR percentage scaling state (Issue #57)
+    val usePercentOfPR by viewModel.usePercentOfPR.collectAsState()
+    val weightPercentOfPR by viewModel.weightPercentOfPR.collectAsState()
 
     val weightSuffix = if (weightUnit == WeightUnit.LB) "lbs" else "kg"
     val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
@@ -226,7 +183,7 @@ fun ExerciseEditBottomSheet(
                 }
 
                 // Personal Record Display
-                currentPR?.let { pr ->
+                currentExercisePR?.let { pr ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(20.dp),
@@ -270,6 +227,20 @@ fun ExerciseEditBottomSheet(
                             }
                         }
                     }
+                }
+
+                // Weight Configuration Section (PR Percentage Scaling - Issue #57)
+                // Only show for standard exercises (not bodyweight)
+                if (exerciseType == ExerciseType.STANDARD) {
+                    WeightConfigurationCard(
+                        usePercentOfPR = usePercentOfPR,
+                        weightPercentOfPR = weightPercentOfPR,
+                        currentExercisePR = currentExercisePR,
+                        weightUnit = weightUnit,
+                        formatWeight = formatWeight,
+                        onUsePercentOfPRChange = viewModel::onUsePercentOfPRChange,
+                        onWeightPercentOfPRChange = viewModel::onWeightPercentOfPRChange
+                    )
                 }
 
                 // Mode Selector
@@ -1029,6 +1000,159 @@ fun EchoLevelSelector(
                         selected = level == echoLevel
                     ) {
                         Text(echoLevel.displayName, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Weight Configuration Card - allows toggling between absolute weight and percentage-of-PR
+ * Issue #57: PR percentage scaling feature
+ */
+@Composable
+fun WeightConfigurationCard(
+    usePercentOfPR: Boolean,
+    weightPercentOfPR: Int,
+    currentExercisePR: PersonalRecord?,
+    weightUnit: WeightUnit,
+    formatWeight: (Float, WeightUnit) -> String,
+    onUsePercentOfPRChange: (Boolean) -> Unit,
+    onWeightPercentOfPRChange: (Int) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.medium)
+        ) {
+            Text(
+                "Weight Configuration",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(Spacing.small))
+
+            // Toggle between absolute weight and % of PR
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Use % of PR",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (usePercentOfPR) FontWeight.Bold else FontWeight.Normal,
+                        color = if (usePercentOfPR) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (currentExercisePR != null) {
+                            "Scale weight based on your personal record"
+                        } else {
+                            "No PR set for this exercise"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = usePercentOfPR,
+                    onCheckedChange = onUsePercentOfPRChange,
+                    enabled = currentExercisePR != null
+                )
+            }
+
+            // Show percentage controls when toggle is ON and PR exists
+            if (usePercentOfPR && currentExercisePR != null) {
+                Spacer(modifier = Modifier.height(Spacing.medium))
+
+                // Calculate resolved weight
+                val resolvedWeight = (currentExercisePR.weightPerCableKg * weightPercentOfPR / 100f)
+                    .let { (it * 2).roundToInt() / 2f } // Round to 0.5kg
+
+                // Display current percentage and resolved weight
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "$weightPercentOfPR% of PR",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "= ${formatWeight(resolvedWeight, weightUnit)}/cable",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(Spacing.small))
+
+                // Percentage slider (50% - 120%, 5% increments)
+                Slider(
+                    value = weightPercentOfPR.toFloat(),
+                    onValueChange = { onWeightPercentOfPRChange(it.toInt()) },
+                    valueRange = 50f..120f,
+                    steps = 13, // (120-50)/5 - 1 = 13 steps for 5% increments
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(Spacing.small))
+
+                // Common preset buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.small)
+                ) {
+                    listOf(70, 80, 90, 100).forEach { percent ->
+                        FilterChip(
+                            selected = weightPercentOfPR == percent,
+                            onClick = { onWeightPercentOfPRChange(percent) },
+                            label = { Text("$percent%") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // Show warning if no PR available and toggle is off
+            if (currentExercisePR == null && !usePercentOfPR) {
+                Spacer(modifier = Modifier.height(Spacing.small))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(Spacing.small),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.small),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Star,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Complete a workout to set your PR and enable percentage scaling",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     }
                 }
             }

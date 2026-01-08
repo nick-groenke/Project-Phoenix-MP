@@ -104,55 +104,88 @@ fun ProgressTab(
                 )
             }
         } else {
-            items(personalRecords, key = { it.id }) { pr ->
-                var exerciseName by remember(pr.exerciseId) { mutableStateOf("Loading...") }
+            // Group PRs by workout mode for organized display
+            // Note: No 'remember' needed here - LazyColumn scope recalculates on recomposition
+            val prsByMode = personalRecords.groupBy { it.workoutMode }
+                .toSortedMap() // Alphabetical order for consistency
 
-                LaunchedEffect(pr.exerciseId) {
-                    val exercise = exerciseRepository.getExerciseById(pr.exerciseId)
-                    exerciseName = exercise?.name ?: "Unknown Exercise"
-                }
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                    )
-                ) {
-                    Row(
+            prsByMode.forEach { (mode, modePRs) ->
+                // Mode header
+                item(key = "mode_header_$mode") {
+                    Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(top = 8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = exerciseName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = formatTimestamp(pr.timestamp),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = mode.uppercase(),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                }
 
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = formatWeight(pr.weightPerCableKg, weightUnit),
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "${pr.reps} Reps • ${pr.workoutMode}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                // PRs for this mode
+                items(modePRs, key = { it.id }) { pr ->
+                    var exerciseName by remember(pr.exerciseId) { mutableStateOf("Loading...") }
+
+                    LaunchedEffect(pr.exerciseId) {
+                        val exercise = exerciseRepository.getExerciseById(pr.exerciseId)
+                        exerciseName = exercise?.name ?: "Unknown Exercise"
+                    }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer
+                        ),
+                        shape = RoundedCornerShape(0.dp) // Flat edges for grouped look
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = exerciseName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = formatTimestamp(pr.timestamp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = formatWeight(pr.weightPerCableKg, weightUnit),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "${pr.reps} Reps",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
+                }
+
+                // Bottom spacer for mode group
+                item(key = "mode_spacer_$mode") {
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
         }

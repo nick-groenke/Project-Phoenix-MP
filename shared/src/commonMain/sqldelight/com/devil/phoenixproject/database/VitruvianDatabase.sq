@@ -169,6 +169,11 @@ CREATE TABLE RoutineExercise (
     -- Superset support (container model)
     supersetId TEXT,
     orderInSuperset INTEGER NOT NULL DEFAULT 0,
+    -- PR percentage scaling (Issue #57)
+    usePercentOfPR INTEGER NOT NULL DEFAULT 0,
+    weightPercentOfPR INTEGER NOT NULL DEFAULT 80,
+    prTypeForScaling TEXT NOT NULL DEFAULT 'MAX_WEIGHT',
+    setWeightsPercentOfPR TEXT,
     FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE,
     FOREIGN KEY (exerciseId) REFERENCES Exercise(id) ON DELETE SET NULL,
     FOREIGN KEY (supersetId) REFERENCES Superset(id) ON DELETE SET NULL
@@ -430,6 +435,30 @@ WHERE exerciseId = ? AND prType = 'MAX_VOLUME'
 ORDER BY volume DESC
 LIMIT 1;
 
+-- Get best weight PR for exercise BY MODE
+selectBestWeightPRByMode:
+SELECT * FROM PersonalRecord
+WHERE exerciseId = :exerciseId
+AND prType = 'MAX_WEIGHT'
+AND workoutMode = :workoutMode
+ORDER BY weight DESC
+LIMIT 1;
+
+-- Get best volume PR for exercise BY MODE
+selectBestVolumePRByMode:
+SELECT * FROM PersonalRecord
+WHERE exerciseId = :exerciseId
+AND prType = 'MAX_VOLUME'
+AND workoutMode = :workoutMode
+ORDER BY volume DESC
+LIMIT 1;
+
+-- Get all PRs for an exercise (all modes) for display
+selectAllPRsForExercise:
+SELECT * FROM PersonalRecord
+WHERE exerciseId = :exerciseId
+ORDER BY workoutMode, prType, achievedAt DESC;
+
 -- Get the best overall PR for an exercise (prefers weight, for backwards compatibility)
 selectBestPR:
 SELECT * FROM PersonalRecord
@@ -510,9 +539,10 @@ INSERT INTO RoutineExercise (
     id, routineId, exerciseName, exerciseMuscleGroup, exerciseEquipment, exerciseDefaultCableConfig,
     exerciseId, cableConfig, orderIndex, setReps, weightPerCableKg, setWeights, mode,
     eccentricLoad, echoLevel, progressionKg, restSeconds, duration, setRestSeconds,
-    perSetRestTime, isAMRAP, supersetId, orderInSuperset
+    perSetRestTime, isAMRAP, supersetId, orderInSuperset,
+    usePercentOfPR, weightPercentOfPR, prTypeForScaling, setWeightsPercentOfPR
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- Insert with IGNORE for import (won't overwrite existing)
 insertRoutineExerciseIgnore:
@@ -520,9 +550,10 @@ INSERT OR IGNORE INTO RoutineExercise (
     id, routineId, exerciseName, exerciseMuscleGroup, exerciseEquipment, exerciseDefaultCableConfig,
     exerciseId, cableConfig, orderIndex, setReps, weightPerCableKg, setWeights, mode,
     eccentricLoad, echoLevel, progressionKg, restSeconds, duration, setRestSeconds,
-    perSetRestTime, isAMRAP, supersetId, orderInSuperset
+    perSetRestTime, isAMRAP, supersetId, orderInSuperset,
+    usePercentOfPR, weightPercentOfPR, prTypeForScaling, setWeightsPercentOfPR
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 deleteRoutineExercises:
 DELETE FROM RoutineExercise WHERE routineId = ?;

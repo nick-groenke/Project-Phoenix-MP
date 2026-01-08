@@ -267,6 +267,12 @@ class KableBleRepository : BleRepository {
     private var handleDetectionEnabled = false
     private var isAutoStartMode = false  // Uses lower velocity threshold for grab detection (Issue #96)
 
+    // Cable configuration for handle release detection (Task 3)
+    // SINGLE/EITHER: Use OR logic (only active cable needs to be at rest)
+    // DOUBLE: Use AND logic (both cables must be at rest)
+    private var currentCableConfig: com.devil.phoenixproject.domain.model.CableConfiguration =
+        com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE
+
     // Connected device info (for logging)
     private var connectedDeviceName: String = ""
     private var connectedDeviceAddress: String = ""
@@ -300,7 +306,12 @@ class KableBleRepository : BleRepository {
     // Handle state hysteresis timers (Task 14)
     private var pendingGrabbedStartTime: Long? = null
     private var pendingReleasedStartTime: Long? = null
-    
+
+    // Track which handle(s) were active when entering Grabbed state
+    // Used for SINGLE/EITHER cable release detection (only check the active handle)
+    // 0 = none, 1 = A only, 2 = B only, 3 = both
+    private var activeHandlesMask: Int = 0
+
     // WaitingForRest timeout tracking (iOS autostart fix)
     private var waitingForRestStartTime: Long? = null
 
@@ -1585,6 +1596,11 @@ class KableBleRepository : BleRepository {
         }
     }
 
+    override fun setCableConfiguration(config: com.devil.phoenixproject.domain.model.CableConfiguration) {
+        log.i { "🎯 Cable configuration set to: $config" }
+        currentCableConfig = config
+    }
+
     override fun resetHandleState() {
         log.d { "Resetting handle activity state to WaitingForRest" }
         _handleState.value = HandleState.WaitingForRest
@@ -2109,7 +2125,9 @@ class KableBleRepository : BleRepository {
                                 aActive -> "A"
                                 else -> "B"
                             }
-                            log.i { "🔥 GRAB CONFIRMED: handle=$activeHandle (posA=${posA.format(1)}, posB=${posB.format(1)}, velA=${velocityA.format(0)}, velB=${velocityB.format(0)}) after ${STATE_TRANSITION_DWELL_MS}ms dwell" }
+                            // Store which handle(s) are active for release detection
+                            activeHandlesMask = (if (aActive) 1 else 0) or (if (bActive) 2 else 0)
+                            log.i { "🔥 GRAB CONFIRMED: handle=$activeHandle mask=$activeHandlesMask (posA=${posA.format(1)}, posB=${posB.format(1)}, velA=${velocityA.format(0)}, velB=${velocityB.format(0)}) after ${STATE_TRANSITION_DWELL_MS}ms dwell" }
                             pendingGrabbedStartTime = null
                             HandleState.Grabbed
                         } else {
@@ -2130,12 +2148,32 @@ class KableBleRepository : BleRepository {
             }
 
             HandleState.Grabbed -> {
-                // Consider released only if BOTH handles are at rest
-                // This prevents false release during single-handle exercises
+                // Task 3: Cable configuration affects release detection logic
+                // SINGLE/EITHER: Only check the handle(s) that were active when grabbed
+                // DOUBLE: Both cables must be at rest
                 val aReleased = posA < HANDLE_REST_THRESHOLD
                 val bReleased = posB < HANDLE_REST_THRESHOLD
 
-                if (aReleased && bReleased) {
+                // For single-cable exercises, only check release on the handle that was grabbed.
+                // This prevents premature release detection when the unused cable is already at rest.
+                val isReleased = when (currentCableConfig) {
+                    com.devil.phoenixproject.domain.model.CableConfiguration.SINGLE,
+                    com.devil.phoenixproject.domain.model.CableConfiguration.EITHER -> {
+                        // Only check the handle(s) that were active when entering Grabbed
+                        when (activeHandlesMask) {
+                            1 -> aReleased           // Only A was active - check A only
+                            2 -> bReleased           // Only B was active - check B only
+                            3 -> aReleased && bReleased  // Both active - both must release
+                            else -> aReleased || bReleased  // Fallback (shouldn't happen)
+                        }
+                    }
+                    com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE -> {
+                        // BOTH cables must be at rest (traditional bilateral exercise)
+                        aReleased && bReleased
+                    }
+                }
+
+                if (isReleased) {
                     // Task 14: Handle state hysteresis - require 200ms sustained before release
                     val currentTime = currentTimeMillis()
                     if (pendingReleasedStartTime == null) {
@@ -2143,8 +2181,9 @@ class KableBleRepository : BleRepository {
                         pendingReleasedStartTime = currentTime
                         HandleState.Grabbed  // Stay grabbed
                     } else if (currentTime - pendingReleasedStartTime!! >= STATE_TRANSITION_DWELL_MS) {
-                        log.d { "RELEASE DETECTED: posA=$posA, posB=$posB < $HANDLE_REST_THRESHOLD after ${STATE_TRANSITION_DWELL_MS}ms dwell" }
+                        log.d { "RELEASE DETECTED (${currentCableConfig} mask=$activeHandlesMask): posA=$posA, posB=$posB < $HANDLE_REST_THRESHOLD after ${STATE_TRANSITION_DWELL_MS}ms dwell" }
                         pendingReleasedStartTime = null
+                        activeHandlesMask = 0  // Reset for next grab
                         HandleState.Released
                     } else {
                         HandleState.Grabbed  // Still dwelling

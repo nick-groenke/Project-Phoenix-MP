@@ -1,8 +1,12 @@
 package com.devil.phoenixproject.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.devil.phoenixproject.data.repository.PersonalRecordRepository
+import com.devil.phoenixproject.domain.model.PersonalRecord
 import com.devil.phoenixproject.domain.model.EccentricLoad
 import com.devil.phoenixproject.domain.model.EchoLevel
+import com.devil.phoenixproject.domain.model.PRType
 import com.devil.phoenixproject.domain.model.RoutineExercise
 import com.devil.phoenixproject.domain.model.WeightUnit
 import com.devil.phoenixproject.domain.model.WorkoutMode
@@ -12,6 +16,7 @@ import com.devil.phoenixproject.domain.model.toWorkoutMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import com.devil.phoenixproject.util.KmpUtils
 import co.touchlab.kermit.Logger
 
@@ -37,7 +42,9 @@ data class SetConfiguration(
     val restSeconds: Int = 60 // Add this
 )
 
-class ExerciseConfigViewModel constructor() : ViewModel() {
+class ExerciseConfigViewModel constructor(
+    private val personalRecordRepository: PersonalRecordRepository? = null
+) : ViewModel() {
 
     private val log = Logger.withTag("ExerciseConfigViewModel")
     private val _initialized = MutableStateFlow(false)
@@ -47,6 +54,14 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
     private lateinit var weightUnit: WeightUnit
     private lateinit var kgToDisplay: (Float, WeightUnit) -> Float
     private lateinit var displayToKg: (Float, WeightUnit) -> Float
+
+    // PR state for the current exercise/mode combination
+    private val _currentExercisePR = MutableStateFlow<PersonalRecord?>(null)
+    val currentExercisePR: StateFlow<PersonalRecord?> = _currentExercisePR.asStateFlow()
+
+    // Convenience accessor for just the PR weight (useful for PRIndicator component)
+    val currentExercisePRWeight: Float?
+        get() = _currentExercisePR.value?.weightPerCableKg
 
     private val _exerciseType = MutableStateFlow(ExerciseType.STANDARD)
     val exerciseType: StateFlow<ExerciseType> = _exerciseType.asStateFlow()
@@ -77,6 +92,16 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
 
     private val _stallDetectionEnabled = MutableStateFlow(true)
     val stallDetectionEnabled: StateFlow<Boolean> = _stallDetectionEnabled.asStateFlow()
+
+    // PR percentage scaling state (Issue #57)
+    private val _usePercentOfPR = MutableStateFlow(false)
+    val usePercentOfPR: StateFlow<Boolean> = _usePercentOfPR.asStateFlow()
+
+    private val _weightPercentOfPR = MutableStateFlow(80)
+    val weightPercentOfPR: StateFlow<Int> = _weightPercentOfPR.asStateFlow()
+
+    private val _prTypeForScaling = MutableStateFlow(PRType.MAX_WEIGHT)
+    val prTypeForScaling: StateFlow<PRType> = _prTypeForScaling.asStateFlow()
 
     init {
 
@@ -171,6 +196,16 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
         _echoLevel.value = exercise.echoLevel
         _stallDetectionEnabled.value = exercise.stallDetectionEnabled
 
+        // PR percentage scaling fields (Issue #57)
+        _usePercentOfPR.value = exercise.usePercentOfPR
+        _weightPercentOfPR.value = exercise.weightPercentOfPR
+        _prTypeForScaling.value = exercise.prTypeForScaling
+
+        // Load PR for the current exercise and mode
+        exercise.exercise.id?.let { exerciseId ->
+            loadPRForExercise(exerciseId, _selectedMode.value.displayName)
+        }
+
         _initialized.value = true
     }
 
@@ -185,6 +220,33 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
 
     fun onSelectedModeChange(mode: WorkoutMode) {
         _selectedMode.value = mode
+        // Load PR for the new mode
+        if (::originalExercise.isInitialized) {
+            originalExercise.exercise.id?.let { exerciseId ->
+                loadPRForExercise(exerciseId, mode.displayName)
+            }
+        }
+    }
+
+    /**
+     * Load the personal record for the given exercise and workout mode.
+     * This updates currentExercisePR which can be used by PRIndicator components.
+     */
+    fun loadPRForExercise(exerciseId: String, workoutMode: String) {
+        if (personalRecordRepository == null) {
+            logDebug("No PersonalRecordRepository available - skipping PR lookup")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val pr = personalRecordRepository.getBestWeightPR(exerciseId, workoutMode)
+                _currentExercisePR.value = pr
+                logDebug("Loaded PR for exercise=$exerciseId, mode=$workoutMode: ${pr?.weightPerCableKg ?: "none"}")
+            } catch (e: Exception) {
+                logWarning("Failed to load PR for exercise=$exerciseId, mode=$workoutMode: ${e.message}")
+                _currentExercisePR.value = null
+            }
+        }
     }
 
     fun onWeightChange(change: Int) {
@@ -219,6 +281,35 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
 
     fun onStallDetectionEnabledChange(enabled: Boolean) {
         _stallDetectionEnabled.value = enabled
+    }
+
+    // PR percentage scaling handlers (Issue #57)
+    fun onUsePercentOfPRChange(enabled: Boolean) {
+        _usePercentOfPR.value = enabled
+    }
+
+    fun onWeightPercentOfPRChange(percent: Int) {
+        _weightPercentOfPR.value = percent.coerceIn(50, 120)
+    }
+
+    fun onPRTypeForScalingChange(prType: PRType) {
+        _prTypeForScaling.value = prType
+    }
+
+    /**
+     * Calculate the resolved weight based on current PR and percentage settings.
+     * Returns null if PR is not available or percentage scaling is disabled.
+     */
+    fun calculateResolvedWeight(): Float? {
+        val pr = _currentExercisePR.value ?: return null
+        if (!_usePercentOfPR.value) return null
+        val percent = _weightPercentOfPR.value
+        if (percent <= 0) return null
+        return (pr.weightPerCableKg * percent / 100f).roundToHalfKg()
+    }
+
+    private fun Float.roundToHalfKg(): Float {
+        return (this * 2).toInt() / 2f
     }
 
     fun updateReps(setId: String, reps: Int?) {
@@ -290,6 +381,21 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
         logDebug("Rest times to save: $restTimes")
         logDebug("Weights to save: ${_sets.value.map { displayToKg(it.weightPerCable, weightUnit) }}")
 
+        val existingPercentages = originalExercise.setWeightsPercentOfPR
+        val hasCustomPercentages = existingPercentages.isNotEmpty() &&
+            existingPercentages.any { it != originalExercise.weightPercentOfPR }
+        val resolvedSetWeightsPercentOfPR = if (_usePercentOfPR.value) {
+            if (hasCustomPercentages) {
+                List(_sets.value.size) { index ->
+                    existingPercentages.getOrNull(index) ?: _weightPercentOfPR.value
+                }
+            } else {
+                List(_sets.value.size) { _weightPercentOfPR.value }
+            }
+        } else {
+            emptyList()
+        }
+
         val updatedExercise = originalExercise.copy(
             setReps = _sets.value.map { it.reps },
             weightPerCableKg = displayToKg(_sets.value.first().weightPerCable, weightUnit),
@@ -304,7 +410,12 @@ class ExerciseConfigViewModel constructor() : ViewModel() {
             } else null,
             perSetRestTime = _perSetRestTime.value,
             isAMRAP = isAMRAP,
-            stallDetectionEnabled = _stallDetectionEnabled.value
+            stallDetectionEnabled = _stallDetectionEnabled.value,
+            // PR percentage scaling fields (Issue #57)
+            usePercentOfPR = _usePercentOfPR.value,
+            weightPercentOfPR = _weightPercentOfPR.value,
+            prTypeForScaling = _prTypeForScaling.value,
+            setWeightsPercentOfPR = resolvedSetWeightsPercentOfPR
         )
 
         logDebug("Updated exercise to save:")
