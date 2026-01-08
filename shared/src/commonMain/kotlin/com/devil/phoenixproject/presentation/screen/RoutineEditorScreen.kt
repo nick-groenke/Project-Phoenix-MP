@@ -1,11 +1,9 @@
 package com.devil.phoenixproject.presentation.screen
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -36,7 +34,6 @@ import com.devil.phoenixproject.presentation.components.SupersetHeader
 import com.devil.phoenixproject.presentation.components.SupersetPickerDialog
 import com.devil.phoenixproject.ui.theme.SupersetTheme
 import org.koin.compose.koinInject
-import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 
