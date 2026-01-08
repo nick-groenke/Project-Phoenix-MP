@@ -73,6 +73,29 @@ fun RoutineEditorScreen(
     var supersetMenuFor by remember { mutableStateOf<String?>(null) } // superset ID showing menu
     var exerciseMenuFor by remember { mutableStateOf<String?>(null) } // exercise ID showing menu
 
+    // Selection mode state (for superset creation/management)
+    var selectionMode by remember { mutableStateOf(false) }
+    val selectedExerciseIds = remember { mutableStateSetOf<String>() }
+
+    // Helper to clear selection
+    fun clearSelection() {
+        selectedExerciseIds.clear()
+        selectionMode = false
+    }
+
+    // Helper to check if selected exercises are all in same superset
+    fun selectedExercisesInSameSuperset(): String? {
+        val selected = state.exercises.filter { it.id in selectedExerciseIds }
+        if (selected.isEmpty()) return null
+        val supersetId = selected.first().supersetId
+        return if (selected.all { it.supersetId == supersetId }) supersetId else null
+    }
+
+    // Helper to check if any selected exercises are in supersets
+    fun anySelectedInSuperset(): Boolean {
+        return state.exercises.any { it.id in selectedExerciseIds && it.supersetId != null }
+    }
+
     // Dialog state for superset editing
     var supersetToRename by remember { mutableStateOf<Superset?>(null) }
     var supersetToEditRest by remember { mutableStateOf<Superset?>(null) }
