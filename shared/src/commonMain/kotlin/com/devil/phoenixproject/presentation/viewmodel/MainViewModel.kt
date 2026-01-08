@@ -835,6 +835,14 @@ class MainViewModel constructor(
             }
             Logger.d { "Built ${command.size}-byte workout command for ${params.programMode}" }
 
+            // Task 3: Set cable configuration for handle release detection
+            // This affects whether release requires ONE cable at rest (SINGLE/EITHER)
+            // or BOTH cables at rest (DOUBLE)
+            val cableConfig = currentExercise?.cableConfig
+                ?: com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE
+            bleRepository.setCableConfiguration(cableConfig)
+            Logger.d { "Cable configuration set to: $cableConfig" }
+
             // 2. Send INIT Command (0x0A) - ensures clean state
             // Per parent repo protocol: "Sometimes sent before start to ensure clean state"
             try {
