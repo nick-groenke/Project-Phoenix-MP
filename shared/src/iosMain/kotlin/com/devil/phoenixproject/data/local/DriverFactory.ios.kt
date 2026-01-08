@@ -47,6 +47,7 @@ actual class DriverFactory {
         ensureWorkoutSessionColumnsExist(driver)
         // Migration 6: Training cycle tables
         ensureTrainingCycleTablesExist(driver)
+        ensureCycleDayColumnsExist(driver)  // Add missing columns to existing CycleDay table
         verifyCriticalTablesExist(driver)
         // Migration 7: PR percentage columns
         ensureRoutineExercisePRColumnsExist(driver)
@@ -542,6 +543,55 @@ actual class DriverFactory {
             NSLog("iOS DB: Added $columnsAdded missing columns to WorkoutSession")
         } else {
             NSLog("iOS DB: All WorkoutSession columns present")
+        }
+    }
+
+    /**
+     * Ensure CycleDay table has all columns from the current schema.
+     * This is critical because CREATE TABLE IF NOT EXISTS does NOT add missing columns
+     * to existing tables. If the table was created with an older schema, it will be
+     * missing columns like echo_level, causing INSERT failures.
+     */
+    private fun ensureCycleDayColumnsExist(driver: SqlDriver) {
+        // First check if the table exists - if not, ensureTrainingCycleTablesExist will create it
+        if (!checkTableExists(driver, "CycleDay")) {
+            NSLog("iOS DB: CycleDay table doesn't exist, will be created by ensureTrainingCycleTablesExist")
+            return
+        }
+
+        // Columns that might be missing from older schema versions
+        // Note: id, cycle_id, day_number, name, routine_id, is_rest_day are the base columns
+        // The following columns were added in later schema updates
+        val columns = listOf(
+            "echo_level" to "ALTER TABLE CycleDay ADD COLUMN echo_level TEXT",
+            "eccentric_load_percent" to "ALTER TABLE CycleDay ADD COLUMN eccentric_load_percent INTEGER",
+            "weight_progression_percent" to "ALTER TABLE CycleDay ADD COLUMN weight_progression_percent REAL",
+            "rep_modifier" to "ALTER TABLE CycleDay ADD COLUMN rep_modifier INTEGER",
+            "rest_time_override_seconds" to "ALTER TABLE CycleDay ADD COLUMN rest_time_override_seconds INTEGER"
+        )
+
+        var columnsAdded = 0
+        for ((columnName, sql) in columns) {
+            try {
+                if (!checkColumnExists(driver, "CycleDay", columnName)) {
+                    driver.execute(null, sql, 0)
+                    columnsAdded++
+                    NSLog("iOS DB: Added missing column '$columnName' to CycleDay")
+                }
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("duplicate column", ignoreCase = true)) {
+                    NSLog("iOS DB: Column '$columnName' already exists (OK)")
+                } else {
+                    NSLog("iOS DB ERROR: Failed to add column '$columnName' to CycleDay: $msg")
+                }
+            }
+        }
+
+        if (columnsAdded > 0) {
+            NSLog("iOS DB: Added $columnsAdded missing columns to CycleDay")
+        } else {
+            NSLog("iOS DB: All CycleDay columns present")
         }
     }
 

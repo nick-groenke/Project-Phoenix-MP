@@ -188,7 +188,14 @@ actual class DriverFactory(private val context: Context) {
                             "CREATE INDEX IF NOT EXISTS idx_cycle_progress_cycle ON CycleProgress(cycle_id)",
                             "CREATE INDEX IF NOT EXISTS idx_planned_set_exercise ON PlannedSet(routine_exercise_id)",
                             "CREATE INDEX IF NOT EXISTS idx_completed_set_session ON CompletedSet(session_id)",
-                            "CREATE INDEX IF NOT EXISTS idx_progression_event_exercise ON ProgressionEvent(exercise_id)"
+                            "CREATE INDEX IF NOT EXISTS idx_progression_event_exercise ON ProgressionEvent(exercise_id)",
+                            // Fallback: Add missing columns to CycleDay if table existed without them
+                            // CREATE TABLE IF NOT EXISTS won't add columns to existing tables
+                            "ALTER TABLE CycleDay ADD COLUMN echo_level TEXT",
+                            "ALTER TABLE CycleDay ADD COLUMN eccentric_load_percent INTEGER",
+                            "ALTER TABLE CycleDay ADD COLUMN weight_progression_percent REAL",
+                            "ALTER TABLE CycleDay ADD COLUMN rep_modifier INTEGER",
+                            "ALTER TABLE CycleDay ADD COLUMN rest_time_override_seconds INTEGER"
                         )
                         7 -> listOf(
                             // PR percentage scaling columns for RoutineExercise (Issue #57)

@@ -62,7 +62,8 @@ fun CycleEditorScreen(
                     popUpTo(NavigationRoutes.TrainingCycles.route) { inclusive = false }
                 }
             } else {
-                uiState.saveError?.let {
+                // Read error directly from ViewModel (composed state may not have updated yet)
+                cycleEditorViewModel.uiState.value.saveError?.let {
                     snackbarHostState.showSnackbar("Failed to save: $it")
                 }
             }
