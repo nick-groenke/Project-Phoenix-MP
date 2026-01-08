@@ -1,5 +1,6 @@
 package com.devil.phoenixproject.presentation.components
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -18,6 +19,8 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -109,6 +112,18 @@ fun ExerciseRowWithConnector(
             )
         }
 
+        // Selection checkbox (visible in selection mode)
+        AnimatedVisibility(visible = isSelectionMode) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onSelectionToggle() },
+                colors = CheckboxDefaults.colors(
+                    checkedColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.padding(start = 8.dp)
+            )
+        }
+
         // Drag handle
         Box(
             modifier = Modifier
@@ -128,7 +143,10 @@ fun ExerciseRowWithConnector(
         Card(
             modifier = Modifier.weight(1f),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
+                containerColor = if (isSelected)
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                else
+                    MaterialTheme.colorScheme.surfaceContainer
             ),
             shape = RoundedCornerShape(12.dp)
         ) {
