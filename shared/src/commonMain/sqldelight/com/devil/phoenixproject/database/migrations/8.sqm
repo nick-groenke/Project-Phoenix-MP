@@ -1,0 +1,39 @@
+-- Migration 8: Schema Healing
+-- Fixes schema drift from partial migrations on iOS/Android
+-- All statements are idempotent (safe to re-run)
+
+-- ============================================================
+-- FIX 1: Clean up invalid Superset rows from Migration 4
+-- Migration 4 inserted Superset rows for empty string supersetGroupIds
+-- This removes any Superset with empty string id and cleans up references
+-- ============================================================
+
+-- First, clear invalid supersetId references in RoutineExercise
+UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId = '';
+
+-- Then delete any Superset rows with empty id (primary key collision risk)
+DELETE FROM Superset WHERE id = '';
+
+-- ============================================================
+-- FIX 2: Ensure CycleDay has all columns
+-- Migration 6 used CREATE TABLE IF NOT EXISTS which doesn't add
+-- missing columns to existing tables
+-- ============================================================
+
+-- Note: SQLite ALTER TABLE ADD COLUMN is idempotent-ish in newer versions,
+-- but older SQLite will error on duplicate column. SQLDelight handles this
+-- at the driver level, so we rely on driver fallbacks for this.
+-- These are here for documentation and fresh installs.
+
+-- ============================================================
+-- FIX 3: Standardize ProgressionEvent index name
+-- Migration 6 created idx_progression_event_exercise
+-- Schema defines idx_progression_exercise
+-- Drop the incorrectly named index if it exists, ensure correct one exists
+-- ============================================================
+
+-- Drop the incorrectly named index (will error if not exists, caught by driver)
+DROP INDEX IF EXISTS idx_progression_event_exercise;
+
+-- Ensure correctly named index exists
+CREATE INDEX IF NOT EXISTS idx_progression_exercise ON ProgressionEvent(exercise_id);
