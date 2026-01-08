@@ -242,7 +242,9 @@ actual class DriverFactory(private val context: Context) {
                             "DELETE FROM Superset WHERE id = ''",
                             // Fix index name inconsistency (was idx_progression_event_exercise in some migrations)
                             "DROP INDEX IF EXISTS idx_progression_event_exercise",
-                            "CREATE INDEX IF NOT EXISTS idx_progression_exercise ON ProgressionEvent(exercise_id)"
+                            "CREATE INDEX IF NOT EXISTS idx_progression_exercise ON ProgressionEvent(exercise_id)",
+                            // Fix orphaned supersetId references from Migration 4 ID collision bug
+                            "UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId IS NOT NULL AND supersetId NOT IN (SELECT id FROM Superset)"
                         )
                         else -> emptyList()
                     }

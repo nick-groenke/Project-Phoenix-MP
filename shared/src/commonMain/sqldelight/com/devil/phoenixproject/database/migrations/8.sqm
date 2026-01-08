@@ -37,3 +37,15 @@ DROP INDEX IF EXISTS idx_progression_event_exercise;
 
 -- Ensure correctly named index exists
 CREATE INDEX IF NOT EXISTS idx_progression_exercise ON ProgressionEvent(exercise_id);
+
+-- ============================================================
+-- FIX 4: Clean up orphaned supersetId references from Migration 4
+-- If the same supersetGroupId was used across different routines,
+-- the second Superset INSERT failed (PRIMARY KEY collision), leaving
+-- RoutineExercise.supersetId pointing to non-existent Superset rows.
+-- This causes FK violations when editing/saving those routines.
+-- ============================================================
+
+UPDATE RoutineExercise SET supersetId = NULL
+WHERE supersetId IS NOT NULL
+AND supersetId NOT IN (SELECT id FROM Superset);

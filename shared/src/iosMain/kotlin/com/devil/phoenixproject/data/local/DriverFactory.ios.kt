@@ -685,10 +685,13 @@ actual class DriverFactory {
      */
     private fun cleanupInvalidSupersetData(driver: SqlDriver) {
         try {
-            // Clear invalid supersetId references
+            // Clear invalid supersetId references (empty strings)
             driver.execute(null, "UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId = ''", 0)
             // Delete invalid Superset rows
             driver.execute(null, "DELETE FROM Superset WHERE id = ''", 0)
+            // Fix orphaned supersetId references from Migration 4 ID collision bug
+            // If same supersetGroupId was used across routines, some Superset rows weren't created
+            driver.execute(null, "UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId IS NOT NULL AND supersetId NOT IN (SELECT id FROM Superset)", 0)
             NSLog("iOS DB: Cleaned up invalid Superset data")
         } catch (e: Exception) {
             NSLog("iOS DB: Superset cleanup note: ${e.message}")
