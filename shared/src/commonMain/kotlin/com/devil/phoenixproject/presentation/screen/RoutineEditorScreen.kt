@@ -339,16 +339,37 @@ fun RoutineEditorScreen(
                                 supersetColorIndex = flatItem.supersetColorIndex,
                                 connectorPosition = flatItem.connectorPosition,
                                 onClick = {
-                                    exerciseToConfig = flatItem.exercise
-                                    isNewExercise = false
-                                    editingIndex = state.exercises.indexOf(flatItem.exercise)
+                                    if (!selectionMode) {
+                                        exerciseToConfig = flatItem.exercise
+                                        isNewExercise = false
+                                        editingIndex = state.exercises.indexOf(flatItem.exercise)
+                                    }
                                 },
                                 onMenuClick = {
-                                    exerciseMenuFor = flatItem.exercise.id
+                                    if (!selectionMode) {
+                                        exerciseMenuFor = flatItem.exercise.id
+                                    }
                                 },
-                                dragModifier = Modifier.draggableHandle(
+                                dragModifier = if (selectionMode) Modifier else Modifier.draggableHandle(
                                     interactionSource = remember { MutableInteractionSource() }
-                                )
+                                ),
+                                // Selection mode props
+                                isSelectionMode = selectionMode,
+                                isSelected = selectedExerciseIds.contains(flatItem.exercise.id),
+                                onLongPress = {
+                                    selectionMode = true
+                                    selectedExerciseIds.add(flatItem.exercise.id)
+                                },
+                                onSelectionToggle = {
+                                    if (selectedExerciseIds.contains(flatItem.exercise.id)) {
+                                        selectedExerciseIds.remove(flatItem.exercise.id)
+                                        if (selectedExerciseIds.isEmpty()) {
+                                            selectionMode = false
+                                        }
+                                    } else {
+                                        selectedExerciseIds.add(flatItem.exercise.id)
+                                    }
+                                }
                             )
 
                             // Context menu (placeholder - will be refactored in Task 12)
