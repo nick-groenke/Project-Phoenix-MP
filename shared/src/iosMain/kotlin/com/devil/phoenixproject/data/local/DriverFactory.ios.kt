@@ -56,6 +56,8 @@ actual class DriverFactory {
         // Migration 8 fixes
         cleanupInvalidSupersetData(driver)
         fixProgressionEventIndex(driver)
+        // Migration 9 fixes
+        regenerateSupersetCompositeIds(driver)
 
         // Now enable foreign keys for normal operation
         try {
@@ -640,11 +642,12 @@ actual class DriverFactory {
 
         try {
             // Step 1: Create Superset entries from distinct supersetGroupIds
+            // Uses composite ID (routineId_supersetGroupId) to prevent PK collisions
             // Only create if not already exists (idempotent)
             val createSupersetsSQL = """
                 INSERT OR IGNORE INTO Superset (id, routineId, name, colorIndex, restBetweenSeconds, orderIndex)
                 SELECT
-                    supersetGroupId,
+                    routineId || '_' || supersetGroupId,
                     routineId,
                     supersetGroupId,
                     0,
@@ -656,13 +659,13 @@ actual class DriverFactory {
             """.trimIndent()
 
             driver.execute(null, createSupersetsSQL, 0)
-            NSLog("iOS DB: Created Superset entries from legacy data")
+            NSLog("iOS DB: Created Superset entries from legacy data with composite IDs")
 
             // Step 2: Update RoutineExercise to link to Superset table
-            // Copy supersetGroupId to supersetId where supersetId is null
+            // Use composite ID (routineId_supersetGroupId) to match new Superset rows
             val linkSupersetsSQL = """
                 UPDATE RoutineExercise
-                SET supersetId = supersetGroupId,
+                SET supersetId = routineId || '_' || supersetGroupId,
                     orderInSuperset = COALESCE(supersetOrder, 0)
                 WHERE supersetGroupId IS NOT NULL
                   AND supersetGroupId != ''
@@ -711,6 +714,75 @@ actual class DriverFactory {
             NSLog("iOS DB: ProgressionEvent index standardized")
         } catch (e: Exception) {
             NSLog("iOS DB: Index fix note: ${e.message}")
+        }
+    }
+
+    /**
+     * Regenerate Superset IDs to composite format (routineId_originalId).
+     *
+     * This is a fallback for Migration 9 to fix existing users who ran old Migration 4.
+     * The original Migration 4 used supersetGroupId directly as Superset.id, which caused
+     * PRIMARY KEY collisions when the same superset group name was used across different routines.
+     *
+     * The new composite format (routineId_originalId) ensures uniqueness across routines.
+     *
+     * Steps:
+     * 1. Create new Superset rows with composite IDs (INSERT OR IGNORE for idempotency)
+     * 2. Update RoutineExercise.supersetId to point to new composite IDs
+     * 3. Delete old non-composite Superset rows if no references remain
+     * 4. Final orphan cleanup for any dangling supersetId references
+     */
+    private fun regenerateSupersetCompositeIds(driver: SqlDriver) {
+        try {
+            // Step 1: Create new Superset rows with composite IDs
+            // Only process rows where ID doesn't contain underscore (not yet migrated)
+            val createCompositeSQL = """
+                INSERT OR IGNORE INTO Superset (id, routineId, name, colorIndex, restBetweenSeconds, orderIndex)
+                SELECT
+                    routineId || '_' || id,
+                    routineId,
+                    name,
+                    colorIndex,
+                    restBetweenSeconds,
+                    orderIndex
+                FROM Superset
+                WHERE id NOT LIKE '%_%'
+            """.trimIndent()
+            driver.execute(null, createCompositeSQL, 0)
+
+            // Step 2: Update RoutineExercise references to use new composite IDs
+            val updateReferencesSQL = """
+                UPDATE RoutineExercise
+                SET supersetId = routineId || '_' || supersetId
+                WHERE supersetId IS NOT NULL
+                  AND supersetId != ''
+                  AND supersetId NOT LIKE '%_%'
+                  AND EXISTS (
+                      SELECT 1 FROM Superset
+                      WHERE Superset.id = RoutineExercise.routineId || '_' || RoutineExercise.supersetId
+                  )
+            """.trimIndent()
+            driver.execute(null, updateReferencesSQL, 0)
+
+            // Step 3: Delete old non-composite Superset rows (now orphaned)
+            val deleteOldSQL = """
+                DELETE FROM Superset
+                WHERE id NOT LIKE '%_%'
+                  AND NOT EXISTS (SELECT 1 FROM RoutineExercise WHERE supersetId = Superset.id)
+            """.trimIndent()
+            driver.execute(null, deleteOldSQL, 0)
+
+            // Step 4: Final orphan cleanup - null out any supersetId that points to non-existent Superset
+            val cleanupOrphansSQL = """
+                UPDATE RoutineExercise SET supersetId = NULL
+                WHERE supersetId IS NOT NULL
+                  AND supersetId NOT IN (SELECT id FROM Superset)
+            """.trimIndent()
+            driver.execute(null, cleanupOrphansSQL, 0)
+
+            NSLog("iOS DB: Superset composite ID regeneration complete")
+        } catch (e: Exception) {
+            NSLog("iOS DB: Superset composite ID regeneration note: ${e.message}")
         }
     }
 }
