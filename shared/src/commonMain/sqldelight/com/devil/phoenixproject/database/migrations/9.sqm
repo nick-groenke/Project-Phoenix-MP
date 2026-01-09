@@ -1,0 +1,63 @@
+-- Migration 9: Schema Healing Phase 2
+-- Fixes issues from migrations 3-8 for existing users who ran old versions
+-- All statements are idempotent (safe to re-run)
+
+-- ============================================================
+-- FIX 1: Add missing CycleDay columns
+-- CREATE TABLE IF NOT EXISTS doesn't add columns to existing tables
+-- These columns were added to the schema but may be missing for users
+-- who had CycleDay table from an earlier schema version
+-- ============================================================
+
+-- Note: SQLite will error on duplicate column - caught by driver fallbacks
+-- These statements document the required columns for fresh installs
+-- ALTER TABLE CycleDay ADD COLUMN echo_level TEXT;
+-- ALTER TABLE CycleDay ADD COLUMN eccentric_load_percent INTEGER;
+-- ALTER TABLE CycleDay ADD COLUMN weight_progression_percent REAL;
+-- ALTER TABLE CycleDay ADD COLUMN rep_modifier INTEGER;
+-- ALTER TABLE CycleDay ADD COLUMN rest_time_override_seconds INTEGER;
+
+-- ============================================================
+-- FIX 2: Regenerate Superset IDs to composite format
+-- Old Migration 4 used supersetGroupId as Superset.id
+-- This caused PK collisions when same group ID used across routines
+-- New format: routineId || '_' || originalId
+-- ============================================================
+
+-- Step 2a: Create new Superset rows with composite IDs
+-- Only for rows where ID doesn't already contain underscore (not yet migrated)
+INSERT OR IGNORE INTO Superset (id, routineId, name, colorIndex, restBetweenSeconds, orderIndex)
+SELECT
+    routineId || '_' || id,  -- New composite ID
+    routineId,
+    name,
+    colorIndex,
+    restBetweenSeconds,
+    orderIndex
+FROM Superset
+WHERE id NOT LIKE '%_%';
+
+-- Step 2b: Update RoutineExercise references to use new composite IDs
+UPDATE RoutineExercise
+SET supersetId = routineId || '_' || supersetId
+WHERE supersetId IS NOT NULL
+  AND supersetId != ''
+  AND supersetId NOT LIKE '%_%'
+  AND EXISTS (
+      SELECT 1 FROM Superset
+      WHERE Superset.id = RoutineExercise.routineId || '_' || RoutineExercise.supersetId
+  );
+
+-- Step 2c: Delete old non-composite Superset rows (now orphaned)
+DELETE FROM Superset
+WHERE id NOT LIKE '%_%'
+  AND NOT EXISTS (SELECT 1 FROM RoutineExercise WHERE supersetId = Superset.id);
+
+-- ============================================================
+-- FIX 3: Final cleanup of orphaned references
+-- Catch any supersetId that points to non-existent Superset
+-- ============================================================
+
+UPDATE RoutineExercise SET supersetId = NULL
+WHERE supersetId IS NOT NULL
+  AND supersetId NOT IN (SELECT id FROM Superset);
