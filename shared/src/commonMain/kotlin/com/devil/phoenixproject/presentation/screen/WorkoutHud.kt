@@ -82,8 +82,10 @@ fun WorkoutHud(
                 formatWeight = formatWeight,
                 weightUnit = weightUnit,
                 onUpdateParameters = onUpdateParameters,
-                onNextExercise = onStartNextExercise, // Only if applicable, e.g. Just Lift doesn't really have next, but Routine does
-                showNextButton = loadedRoutine != null
+                onNextExercise = onStartNextExercise,
+                // Issue #125: Never show Next button during Active state - exercise navigation
+                // should only be allowed when the machine is not engaged. Official app behavior.
+                showNextButton = false
             )
         },
         containerColor = MaterialTheme.colorScheme.surface

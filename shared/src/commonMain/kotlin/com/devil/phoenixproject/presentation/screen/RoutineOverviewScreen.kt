@@ -1,14 +1,15 @@
 package com.devil.phoenixproject.presentation.screen
 
-import androidx.activity.compose.BackHandler
+import com.devil.phoenixproject.presentation.components.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,11 +20,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.devil.phoenixproject.data.repository.ExerciseRepository
+import com.devil.phoenixproject.data.repository.ExerciseVideoEntity
 import com.devil.phoenixproject.domain.model.*
+import com.devil.phoenixproject.presentation.components.SliderWithButtons
+import com.devil.phoenixproject.presentation.components.VideoPlayer
 import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
+import com.devil.phoenixproject.ui.theme.Spacing
 
 /**
  * Routine Overview Screen - Entry point when starting a routine.
@@ -41,6 +47,7 @@ fun RoutineOverviewScreen(
     val completedExercises by viewModel.completedExercises.collectAsState()
     val weightUnit by viewModel.weightUnit.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
+    val enableVideoPlayback by viewModel.enableVideoPlayback.collectAsState()
 
     // Get the current routine from flow state
     val routine = when (val state = routineFlowState) {
@@ -48,11 +55,10 @@ fun RoutineOverviewScreen(
         else -> null
     }
 
+    // If no routine is loaded, just return early
+    // Don't auto-navigate here - the caller (dialog, back button) handles navigation
+    // Auto-navigating causes double-back issues when exitRoutineFlow() clears the routine
     if (routine == null) {
-        // No routine loaded, navigate back
-        LaunchedEffect(Unit) {
-            navController.navigateUp()
-        }
         return
     }
 
@@ -60,6 +66,11 @@ fun RoutineOverviewScreen(
         initialPage = (routineFlowState as? RoutineFlowState.Overview)?.selectedExerciseIndex ?: 0,
         pageCount = { routine.exercises.size }
     )
+
+    // Clear topbar title to allow dynamic title from EnhancedMainScreen
+    LaunchedEffect(Unit) {
+        viewModel.updateTopBarTitle("")
+    }
 
     // Sync pager with viewmodel
     LaunchedEffect(pagerState.currentPage) {
@@ -75,24 +86,13 @@ fun RoutineOverviewScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(routine.name) },
-                navigationIcon = {
-                    IconButton(onClick = { showStopConfirmation = true }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = { showStopConfirmation = true },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Text("Stop Routine")
-                    }
-                }
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showStopConfirmation = true },
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                icon = { Icon(Icons.Default.Close, "Stop") },
+                text = { Text("Stop") }
             )
         }
     ) { padding ->
@@ -115,11 +115,36 @@ fun RoutineOverviewScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                contentPadding = PaddingValues(horizontal = 32.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
                 pageSpacing = 16.dp
             ) { page ->
                 val exercise = routine.exercises[page]
                 val isCompleted = completedExercises.contains(page)
+
+                // Track adjusted parameters for this exercise (first set as baseline)
+                val initialWeight = exercise.setWeightsPerCableKg.firstOrNull() ?: exercise.weightPerCableKg
+                val initialReps = exercise.setReps.firstOrNull() ?: 10
+                var adjustedWeight by remember(exercise) { mutableStateOf(initialWeight) }
+                var adjustedReps by remember(exercise) { mutableStateOf(initialReps) }
+
+                // Echo mode state
+                var echoLevel by remember(exercise) { mutableStateOf(exercise.echoLevel ?: EchoLevel.HARD) }
+                var eccentricLoadPercent by remember(exercise) {
+                    mutableStateOf(exercise.eccentricLoad?.percentage ?: 100)
+                }
+
+                // Load video for this exercise
+                var videoEntity by remember { mutableStateOf<ExerciseVideoEntity?>(null) }
+                LaunchedEffect(exercise.exercise.id) {
+                    exercise.exercise.id?.let { exerciseId ->
+                        try {
+                            val videos = exerciseRepository.getVideos(exerciseId)
+                            videoEntity = videos.firstOrNull()
+                        } catch (_: Exception) {
+                            // Video loading failed - will show placeholder
+                        }
+                    }
+                }
 
                 ExerciseOverviewCard(
                     exercise = exercise,
@@ -127,11 +152,27 @@ fun RoutineOverviewScreen(
                     isCompleted = isCompleted,
                     weightUnit = weightUnit,
                     formatWeight = viewModel::formatWeight,
+                    videoUrl = if (enableVideoPlayback) videoEntity?.videoUrl else null,
+                    adjustedWeight = adjustedWeight,
+                    adjustedReps = adjustedReps,
+                    isAMRAP = exercise.isAMRAP,
+                    isEchoMode = exercise.programMode is ProgramMode.Echo,
+                    echoLevel = echoLevel,
+                    eccentricLoadPercent = eccentricLoadPercent,
+                    onWeightChange = { newWeight ->
+                        if (newWeight >= 0f) adjustedWeight = newWeight
+                    },
+                    onRepsChange = { newReps ->
+                        if (newReps >= 1) adjustedReps = newReps
+                    },
+                    onEchoLevelChange = { echoLevel = it },
+                    onEccentricLoadChange = { eccentricLoadPercent = it },
                     onStartExercise = {
                         // Use ensureConnection to auto-connect if needed (matches other start buttons)
                         viewModel.ensureConnection(
                             onConnected = {
-                                viewModel.enterSetReady(page, 0)
+                                // Pass adjusted values to SetReady
+                                viewModel.enterSetReadyWithAdjustments(page, 0, adjustedWeight, adjustedReps)
                                 navController.navigate(NavigationRoutes.SetReady.route)
                             },
                             onFailed = {} // Toast/error handled by ensureConnection
@@ -168,33 +209,6 @@ fun RoutineOverviewScreen(
                 }
             }
 
-            // Connection status indicator
-            if (connectionState !is ConnectionState.Connected) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Warning,
-                            "Warning",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Connect to Vitruvian to start exercises",
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
         }
     }
 
@@ -231,8 +245,23 @@ private fun ExerciseOverviewCard(
     isCompleted: Boolean,
     weightUnit: WeightUnit,
     formatWeight: (Float, WeightUnit) -> String,
+    videoUrl: String?,
+    adjustedWeight: Float,
+    adjustedReps: Int,
+    isAMRAP: Boolean,
+    isEchoMode: Boolean,
+    echoLevel: EchoLevel,
+    eccentricLoadPercent: Int,
+    onWeightChange: (Float) -> Unit,
+    onRepsChange: (Int) -> Unit,
+    onEchoLevelChange: (EchoLevel) -> Unit,
+    onEccentricLoadChange: (Int) -> Unit,
     onStartExercise: () -> Unit
 ) {
+    // Weight parameters matching RestTimerCard exactly
+    val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
+    val weightStep = if (weightUnit == WeightUnit.LB) 0.5f else 0.25f  // Fine-grained like RestTimerCard
+
     Card(
         modifier = Modifier.fillMaxSize(),
         shape = RoundedCornerShape(24.dp),
@@ -242,9 +271,10 @@ private fun ExerciseOverviewCard(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(24.dp),
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Exercise header
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -253,14 +283,13 @@ private fun ExerciseOverviewCard(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         exercise.exercise.displayName,
-                        style = MaterialTheme.typography.headlineMedium,
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(Modifier.height(4.dp))
                     Text(
                         exercise.exercise.muscleGroups,
                         style = MaterialTheme.typography.bodyMedium,
@@ -268,54 +297,136 @@ private fun ExerciseOverviewCard(
                     )
                 }
 
-                // Set summary
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "${exercise.setReps.size} sets",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.height(8.dp))
+                // Video thumbnail
+                VideoPlayer(
+                    videoUrl = videoUrl,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
 
-                    // Show set breakdown
-                    exercise.setReps.forEachIndexed { index, reps ->
-                        val setWeight = exercise.setWeightsPerCableKg.getOrNull(index)
-                            ?: exercise.weightPerCableKg
-                        Text(
-                            "${reps ?: "AMRAP"} @ ${formatWeight(setWeight, weightUnit)}",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
+                // Mode indicator (read-only)
+                Text(
+                    exercise.programMode.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-                // Mode and cable config
-                Column(
+                // Adjustment controls - matching RestTimerCard style
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(Spacing.medium),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.medium)
                     ) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(exercise.programMode.displayName) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Settings, null, Modifier.size(18.dp))
-                            }
+                        Text(
+                            if (isEchoMode) "ECHO SETTINGS" else "SET CONFIGURATION",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            letterSpacing = 1.sp
                         )
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(exercise.cableConfig.name) },
-                            leadingIcon = {
-                                Icon(Icons.Default.Link, null, Modifier.size(18.dp))
-                            }
+
+                        Text(
+                            "${exercise.setReps.size} sets",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
+
+                        if (isEchoMode) {
+                            // Echo mode: Show Echo Level + Eccentric Load + Reps
+                            OverviewEchoLevelSelector(
+                                selectedLevel = echoLevel,
+                                onLevelChange = onEchoLevelChange
+                            )
+
+                            OverviewEccentricLoadSlider(
+                                percent = eccentricLoadPercent,
+                                onPercentChange = onEccentricLoadChange
+                            )
+
+                            // Reps for Echo mode
+                            if (!isAMRAP) {
+                                SliderWithButtons(
+                                    value = adjustedReps.toFloat(),
+                                    onValueChange = { newValue ->
+                                        onRepsChange(newValue.toInt().coerceIn(1, 50))
+                                    },
+                                    valueRange = 1f..50f,
+                                    step = 1f,
+                                    label = "Target Reps",
+                                    formatValue = { it.toInt().toString() }
+                                )
+                            } else {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Target Reps", style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "AMRAP",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        } else {
+                            // Standard modes: Weight + Reps
+                            SliderWithButtons(
+                                value = adjustedWeight,
+                                onValueChange = { newWeight ->
+                                    onWeightChange(newWeight.coerceIn(0f, maxWeight))
+                                },
+                                valueRange = 0f..maxWeight,
+                                step = weightStep,
+                                label = "Weight per cable",
+                                formatValue = { formatWeight(it, weightUnit) }
+                            )
+
+                            // Reps adjuster (or AMRAP indicator)
+                            if (isAMRAP) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Target Reps", style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "AMRAP",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else {
+                                SliderWithButtons(
+                                    value = adjustedReps.toFloat(),
+                                    onValueChange = { newValue ->
+                                        onRepsChange(newValue.toInt().coerceIn(1, 50))
+                                    },
+                                    valueRange = 1f..50f,
+                                    step = 1f,
+                                    label = "Target Reps",
+                                    formatValue = { it.toInt().toString() }
+                                )
+                            }
+                        }
                     }
                 }
+
+                Spacer(Modifier.weight(1f))
 
                 // Start button
                 Button(
@@ -348,5 +459,106 @@ private fun ExerciseOverviewCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * Echo Level selector for Overview - Row of 4 buttons matching RestTimerCard style
+ */
+@Composable
+private fun OverviewEchoLevelSelector(
+    selectedLevel: EchoLevel,
+    onLevelChange: (EchoLevel) -> Unit
+) {
+    Column {
+        Text(
+            text = "ECHO LEVEL",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 1.sp
+        )
+
+        Spacer(modifier = Modifier.height(Spacing.small))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerLowest,
+                    RoundedCornerShape(Spacing.medium)
+                )
+                .padding(Spacing.extraSmall),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.extraSmall)
+        ) {
+            EchoLevel.entries.forEach { level ->
+                val isSelected = level == selectedLevel
+
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(Spacing.small),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLowest
+                    },
+                    onClick = { onLevelChange(level) }
+                ) {
+                    Text(
+                        text = level.displayName,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = Spacing.small),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Eccentric Load slider for Overview matching RestTimerCard style (0-150%)
+ */
+@Composable
+private fun OverviewEccentricLoadSlider(
+    percent: Int,
+    onPercentChange: (Int) -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "ECCENTRIC LOAD",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = "$percent%",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.small))
+
+        Slider(
+            value = percent.toFloat(),
+            onValueChange = { onPercentChange(it.toInt()) },
+            valueRange = 0f..150f,
+            steps = 29, // 5% increments: 0, 5, 10, ... 150
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }

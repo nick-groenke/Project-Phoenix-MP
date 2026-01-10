@@ -363,6 +363,25 @@ fun WorkoutTab(
                     }
                 }
                 is WorkoutState.SetSummary -> {
+                    // Compute contextual button label
+                    val buttonLabel = run {
+                        val routine = loadedRoutine
+                        if (routine == null) {
+                            "Done" // Just Lift / Single Exercise
+                        } else {
+                            val currentExercise = routine.exercises.getOrNull(currentExerciseIndex)
+                            val isLastSetOfExercise = currentExercise != null &&
+                                currentSetIndex >= currentExercise.setReps.size - 1
+                            val isLastExercise = currentExerciseIndex >= routine.exercises.size - 1
+
+                            when {
+                                isLastSetOfExercise && isLastExercise -> "Complete Routine"
+                                isLastSetOfExercise -> "Next Exercise"
+                                else -> "Next Set"
+                            }
+                        }
+                    }
+
                     SetSummaryCard(
                         summary = workoutState,
                         workoutMode = workoutParameters.programMode.displayName,
@@ -372,7 +391,8 @@ fun WorkoutTab(
                         onContinue = onProceedFromSummary,
                         autoplayEnabled = autoplayEnabled,
                         summaryCountdownSeconds = summaryCountdownSeconds,
-                        onRpeLogged = onRpeLogged
+                        onRpeLogged = onRpeLogged,
+                        buttonLabel = buttonLabel
                     )
                 }
                 is WorkoutState.Resting -> {
@@ -1444,7 +1464,8 @@ fun SetSummaryCard(
     summaryCountdownSeconds: Int,  // Configurable countdown duration (0 = Off, no auto-continue)
     onRpeLogged: ((Int) -> Unit)? = null,  // Optional RPE callback
     isHistoryView: Boolean = false,  // Hide interactive elements when viewing from history
-    savedRpe: Int? = null  // Show saved RPE value in history view
+    savedRpe: Int? = null,  // Show saved RPE value in history view
+    buttonLabel: String = "Done"  // Contextual label: "Next Set", "Next Exercise", "Complete Routine"
 ) {
     // State for RPE tracking
     var loggedRpe by remember { mutableStateOf<Int?>(null) }
@@ -1700,9 +1721,9 @@ fun SetSummaryCard(
             ) {
                 Text(
                     text = if (autoplayEnabled && summaryCountdownSeconds > 0 && autoCountdown > 0) {
-                        "Done ($autoCountdown)"
+                        "$buttonLabel ($autoCountdown)"
                     } else {
-                        "Done"
+                        buttonLabel
                     },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,

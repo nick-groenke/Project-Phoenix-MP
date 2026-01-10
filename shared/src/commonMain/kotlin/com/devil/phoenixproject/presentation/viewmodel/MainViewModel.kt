@@ -1324,18 +1324,21 @@ class MainViewModel constructor(
     }
 
     /**
-     * Proceed from set summary to rest timer or completion.
-     * Called when user clicks "Continue" button on set summary screen,
+     * Proceed from set summary to next step.
+     * Called when user clicks "Done" button on set summary screen,
      * or when autoplay countdown finishes.
      *
-     * Parity with parent repo: MainViewModel.kt lines 1562-1653
+     * Flow depends on autoplay setting:
+     * - Autoplay ON: Summary → rest timer → auto-advance to Countdown
+     * - Autoplay OFF: Summary → SetReady screen (no rest timer)
      */
     fun proceedFromSummary() {
         viewModelScope.launch {
             val routine = _loadedRoutine.value
             val isJustLift = _workoutParameters.value.isJustLift
+            val autoplay = autoplayEnabled.value
 
-            Logger.d { "proceedFromSummary: routine=${routine?.name ?: "NULL"}, isJustLift=$isJustLift" }
+            Logger.d { "proceedFromSummary: routine=${routine?.name ?: "NULL"}, isJustLift=$isJustLift, autoplay=$autoplay" }
             Logger.d { "  currentExerciseIndex=${_currentExerciseIndex.value}, currentSetIndex=${_currentSetIndex.value}" }
 
             // Check if routine is complete (for routine mode, not Just Lift)
@@ -1350,17 +1353,56 @@ class MainViewModel constructor(
                 }
 
                 // Check if there are ANY more steps using superset-aware navigation
-                val hasNextStep = getNextStep(routine, _currentExerciseIndex.value, _currentSetIndex.value) != null
+                val nextStep = getNextStep(routine, _currentExerciseIndex.value, _currentSetIndex.value)
 
                 // If no more steps in the entire routine, show completion screen
-                if (!hasNextStep) {
+                if (nextStep == null) {
                     Logger.d { "proceedFromSummary: No more steps - showing routine complete" }
                     showRoutineComplete()
                     return@launch
                 }
+
+                // Autoplay OFF: go directly to SetReady for manual control (no rest timer)
+                if (!autoplay) {
+                    Logger.d { "proceedFromSummary: Autoplay OFF - going to SetReady for next step" }
+                    val (nextExIdx, nextSetIdx) = nextStep
+
+                    // Advance to next step
+                    _currentExerciseIndex.value = nextExIdx
+                    _currentSetIndex.value = nextSetIdx
+
+                    // Clear RPE for next set
+                    _currentSetRpe.value = null
+
+                    // Get next exercise and update parameters
+                    val nextExercise = routine.exercises[nextExIdx]
+                    val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(nextSetIdx)
+                        ?: nextExercise.weightPerCableKg
+                    val nextSetReps = nextExercise.setReps.getOrNull(nextSetIdx)
+
+                    _workoutParameters.value = _workoutParameters.value.copy(
+                        weightPerCableKg = nextSetWeight,
+                        reps = nextSetReps ?: 0,
+                        programMode = nextExercise.programMode,
+                        echoLevel = nextExercise.echoLevel,
+                        eccentricLoad = nextExercise.eccentricLoad,
+                        progressionRegressionKg = nextExercise.progressionKg,
+                        selectedExerciseId = nextExercise.exercise.id,
+                        isAMRAP = nextSetReps == null,
+                        stallDetectionEnabled = nextExercise.stallDetectionEnabled
+                    )
+
+                    // Reset counters for next set
+                    repCounter.resetCountsOnly()
+                    resetAutoStopState()
+
+                    // Navigate to SetReady screen
+                    enterSetReady(nextExIdx, nextSetIdx)
+                    return@launch
+                }
             }
 
-            // Check if there are more sets or exercises remaining
+            // Check if there are more sets or exercises remaining (for rest timer logic)
             val hasMoreSets = routine?.let {
                 val currentExercise = it.exercises.getOrNull(_currentExerciseIndex.value)
                 val isAMRAPExercise = currentExercise?.isAMRAP == true
@@ -1378,7 +1420,7 @@ class MainViewModel constructor(
 
             // Single Exercise mode (not Just Lift, includes temp routines from SingleExerciseScreen)
             val isSingleExercise = isSingleExerciseMode() && !isJustLift
-            // Only show rest timer if there are actually more sets/exercises remaining
+            // Show rest timer if autoplay ON and more sets/exercises remaining
             val shouldShowRestTimer = (hasMoreSets || hasMoreExercises) && !isJustLift
 
             Logger.d { "proceedFromSummary: hasMoreSets=$hasMoreSets, hasMoreExercises=$hasMoreExercises" }
@@ -1387,8 +1429,7 @@ class MainViewModel constructor(
             // Clear RPE for next set
             _currentSetRpe.value = null
 
-            // Show rest timer if there are more sets/exercises
-            // (regardless of autoplay preference - autoplay only controls auto-advance after rest)
+            // Show rest timer if there are more sets/exercises (autoplay ON path)
             if (shouldShowRestTimer) {
                 Logger.d { "proceedFromSummary: Starting rest timer..." }
                 startRestTimer()
@@ -1599,7 +1640,13 @@ class MainViewModel constructor(
 
     fun formatWeight(kg: Float, unit: WeightUnit): String {
         val value = kgToDisplay(kg, unit)
-        return "${value.format(1)} ${unit.name.lowercase()}"
+        // Format with up to 2 decimals, trimming trailing zeros
+        val formatted = if (value % 1 == 0f) {
+            value.toInt().toString()
+        } else {
+            value.format(2).trimEnd('0').trimEnd('.')
+        }
+        return "$formatted ${unit.name.lowercase()}"
     }
 
     fun saveRoutine(routine: Routine) {
@@ -1780,11 +1827,43 @@ class MainViewModel constructor(
     }
 
     /**
+     * Enter SetReady state with pre-adjusted weight and reps from the overview screen.
+     */
+    fun enterSetReadyWithAdjustments(exerciseIndex: Int, setIndex: Int, adjustedWeight: Float, adjustedReps: Int) {
+        val routine = _loadedRoutine.value ?: return
+        val exercise = routine.exercises.getOrNull(exerciseIndex) ?: return
+
+        _currentExerciseIndex.value = exerciseIndex
+        _currentSetIndex.value = setIndex
+
+        _routineFlowState.value = RoutineFlowState.SetReady(
+            exerciseIndex = exerciseIndex,
+            setIndex = setIndex,
+            adjustedWeight = adjustedWeight,
+            adjustedReps = adjustedReps,
+            echoLevel = if (exercise.programMode is ProgramMode.Echo) exercise.echoLevel else null,
+            eccentricLoadPercent = if (exercise.programMode is ProgramMode.Echo) exercise.eccentricLoad.percentage else null
+        )
+
+        // Update workout parameters with adjusted values
+        _workoutParameters.value = _workoutParameters.value.copy(
+            programMode = exercise.programMode,
+            weightPerCableKg = adjustedWeight,
+            reps = adjustedReps,
+            echoLevel = exercise.echoLevel,
+            eccentricLoad = exercise.eccentricLoad,
+            selectedExerciseId = exercise.exercise.id,
+            stallDetectionEnabled = exercise.stallDetectionEnabled
+        )
+    }
+
+    /**
      * Update weight in set-ready state.
+     * Validates that weight is non-negative.
      */
     fun updateSetReadyWeight(weight: Float) {
         val state = _routineFlowState.value
-        if (state is RoutineFlowState.SetReady) {
+        if (state is RoutineFlowState.SetReady && weight >= 0f) {
             _routineFlowState.value = state.copy(adjustedWeight = weight)
             _workoutParameters.value = _workoutParameters.value.copy(weightPerCableKg = weight)
         }
@@ -1792,10 +1871,11 @@ class MainViewModel constructor(
 
     /**
      * Update reps in set-ready state.
+     * Validates that reps is at least 1.
      */
     fun updateSetReadyReps(reps: Int) {
         val state = _routineFlowState.value
-        if (state is RoutineFlowState.SetReady) {
+        if (state is RoutineFlowState.SetReady && reps >= 1) {
             _routineFlowState.value = state.copy(adjustedReps = reps)
             _workoutParameters.value = _workoutParameters.value.copy(reps = reps)
         }
@@ -3925,6 +4005,19 @@ class MainViewModel constructor(
         restTimerJob?.cancel()
         bodyweightTimerJob?.cancel()
         repEventsCollectionJob?.cancel()
+
+        // Issue: BLE resource leak - Disconnect BLE when ViewModel is cleared
+        // to prevent battery drain and orphaned connections.
+        // Use NonCancellable context since viewModelScope may be cancelled during onCleared
+        viewModelScope.launch(kotlinx.coroutines.NonCancellable) {
+            try {
+                bleRepository.disconnect()
+                Logger.i { "BLE disconnected during ViewModel cleanup" }
+            } catch (e: Exception) {
+                Logger.e { "Failed to disconnect BLE during cleanup: ${e.message}" }
+            }
+        }
+
         Logger.i { "MainViewModel cleared, all jobs cancelled" }
     }
 }

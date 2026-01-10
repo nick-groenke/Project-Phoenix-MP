@@ -1,10 +1,12 @@
 package com.devil.phoenixproject.presentation.screen
 
+import com.devil.phoenixproject.presentation.components.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
@@ -12,14 +14,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.devil.phoenixproject.data.repository.ExerciseRepository
+import com.devil.phoenixproject.data.repository.ExerciseVideoEntity
 import com.devil.phoenixproject.domain.model.*
+import com.devil.phoenixproject.presentation.components.SliderWithButtons
+import com.devil.phoenixproject.presentation.components.VideoPlayer
 import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
+import com.devil.phoenixproject.ui.theme.Spacing
 
 /**
  * Set Ready Screen - Focused view for a single exercise/set.
@@ -37,27 +46,30 @@ fun SetReadyScreen(
     val loadedRoutine by viewModel.loadedRoutine.collectAsState()
     val weightUnit by viewModel.weightUnit.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
+    val enableVideoPlayback by viewModel.enableVideoPlayback.collectAsState()
 
     // Get current state
     val setReadyState = routineFlowState as? RoutineFlowState.SetReady
     val routine = loadedRoutine
 
+    // If no state/routine, just return early
+    // Don't auto-navigate - the caller handles navigation to avoid double-back issues
     if (setReadyState == null || routine == null) {
-        LaunchedEffect(Unit) {
-            navController.navigateUp()
-        }
         return
     }
 
     val currentExercise = routine.exercises.getOrNull(setReadyState.exerciseIndex)
+    // If exercise is invalid, just return early
     if (currentExercise == null) {
-        LaunchedEffect(Unit) {
-            navController.navigateUp()
-        }
         return
     }
 
     val isEchoMode = currentExercise.programMode is ProgramMode.Echo
+    val isAMRAP = currentExercise.isAMRAP
+
+    // Weight parameters matching RestTimerCard exactly
+    val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
+    val weightStep = if (weightUnit == WeightUnit.LB) 0.5f else 0.25f  // Fine-grained like RestTimerCard
 
     // Navigation state - uses superset-aware helpers from ViewModel
     val canGoPrev = viewModel.hasPreviousStep(setReadyState.exerciseIndex, setReadyState.setIndex)
@@ -66,12 +78,38 @@ fun SetReadyScreen(
     // Stop confirmation dialog
     var showStopConfirmation by remember { mutableStateOf(false) }
 
+    // Handle system back button
+    BackHandler {
+        viewModel.returnToOverview()
+        navController.navigateUp()
+    }
+
+    // Clear topbar title to allow dynamic title from EnhancedMainScreen
+    LaunchedEffect(Unit) {
+        viewModel.updateTopBarTitle("")
+    }
+
+    // Load video for exercise
+    var videoEntity by remember { mutableStateOf<ExerciseVideoEntity?>(null) }
+    LaunchedEffect(currentExercise.exercise.id) {
+        currentExercise.exercise.id?.let { exerciseId ->
+            try {
+                val videos = exerciseRepository.getVideos(exerciseId)
+                videoEntity = videos.firstOrNull()
+            } catch (_: Exception) {
+                // Video loading failed
+            }
+        }
+    }
+
     // Watch for workout state changes to navigate to ActiveWorkout
+    // Use popUpTo(RoutineOverview) to maintain clean navigation stack:
+    // Stack is always: DailyRoutines -> RoutineOverview -> (SetReady OR ActiveWorkout)
     LaunchedEffect(workoutState) {
         when (workoutState) {
             is WorkoutState.Countdown, is WorkoutState.Active -> {
                 navController.navigate(NavigationRoutes.ActiveWorkout.route) {
-                    popUpTo(NavigationRoutes.SetReady.route) { inclusive = true }
+                    popUpTo(NavigationRoutes.RoutineOverview.route) { inclusive = false }
                 }
             }
             else -> {}
@@ -79,24 +117,13 @@ fun SetReadyScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(currentExercise.exercise.displayName) },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.returnToOverview(); navController.navigateUp() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = { showStopConfirmation = true },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
-                    ) {
-                        Text("Stop Routine")
-                    }
-                }
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showStopConfirmation = true },
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                icon = { Icon(Icons.Default.Close, "Stop") },
+                text = { Text("Stop") }
             )
         }
     ) { padding ->
@@ -112,7 +139,7 @@ fun SetReadyScreen(
                         )
                     )
                 )
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
@@ -144,114 +171,119 @@ fun SetReadyScreen(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // Configuration card
+            // Video thumbnail
+            if (enableVideoPlayback) {
+                VideoPlayer(
+                    videoUrl = videoEntity?.videoUrl,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
+
+            // Configuration card - matching RestTimerCard style
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                        .padding(Spacing.medium),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.medium)
                 ) {
+                    Text(
+                        if (isEchoMode) "ECHO SETTINGS" else "SET CONFIGURATION",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        letterSpacing = 1.sp
+                    )
+
                     if (isEchoMode) {
-                        // Echo mode controls
-                        Text(
-                            "ECHO SETTINGS",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
+                        // Echo Level selector - matching RestTimerCard style
+                        SetReadyEchoLevelSelector(
+                            selectedLevel = setReadyState.echoLevel ?: EchoLevel.HARD,
+                            onLevelChange = { viewModel.updateSetReadyEchoLevel(it) }
                         )
 
-                        // Echo Level selector
-                        Text("Echo Level", style = MaterialTheme.typography.bodyMedium)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            EchoLevel.entries.forEach { level ->
-                                FilterChip(
-                                    selected = setReadyState.echoLevel == level,
-                                    onClick = {
-                                        viewModel.updateSetReadyEchoLevel(level)
-                                    },
-                                    label = { Text(level.displayName) }
+                        // Eccentric Load slider - matching RestTimerCard style
+                        SetReadyEccentricLoadSlider(
+                            percent = setReadyState.eccentricLoadPercent ?: 100,
+                            onPercentChange = { viewModel.updateSetReadyEccentricLoad(it) }
+                        )
+
+                        // Reps adjuster for Echo mode too
+                        if (!isAMRAP) {
+                            SliderWithButtons(
+                                value = setReadyState.adjustedReps.toFloat(),
+                                onValueChange = { newValue ->
+                                    viewModel.updateSetReadyReps(newValue.toInt().coerceIn(1, 50))
+                                },
+                                valueRange = 1f..50f,
+                                step = 1f,
+                                label = "Target Reps",
+                                formatValue = { it.toInt().toString() }
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Target Reps", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "AMRAP",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
-
-                        // Eccentric Load slider
-                        Text("Eccentric Load: ${setReadyState.eccentricLoadPercent}%",
-                            style = MaterialTheme.typography.bodyMedium)
-                        Slider(
-                            value = (setReadyState.eccentricLoadPercent ?: 100).toFloat(),
-                            onValueChange = {
-                                viewModel.updateSetReadyEccentricLoad(it.toInt())
-                            },
-                            valueRange = 0f..150f,
-                            steps = 5
-                        )
                     } else {
-                        // Standard mode controls
-                        Text(
-                            "SET CONFIGURATION",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary
+                        // Standard mode: Weight + Reps using SliderWithButtons
+                        SliderWithButtons(
+                            value = setReadyState.adjustedWeight,
+                            onValueChange = { newWeight ->
+                                viewModel.updateSetReadyWeight(newWeight.coerceIn(0f, maxWeight))
+                            },
+                            valueRange = 0f..maxWeight,
+                            step = weightStep,
+                            label = "Weight per cable",
+                            formatValue = { viewModel.formatWeight(it, weightUnit) }
                         )
 
-                        // Weight adjuster
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Weight", style = MaterialTheme.typography.bodyLarge)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    viewModel.updateSetReadyWeight(setReadyState.adjustedWeight - 0.5f)
-                                }) {
-                                    Icon(Icons.Default.Remove, "Decrease")
-                                }
+                        if (!isAMRAP) {
+                            SliderWithButtons(
+                                value = setReadyState.adjustedReps.toFloat(),
+                                onValueChange = { newValue ->
+                                    viewModel.updateSetReadyReps(newValue.toInt().coerceIn(1, 50))
+                                },
+                                valueRange = 1f..50f,
+                                step = 1f,
+                                label = "Target Reps",
+                                formatValue = { it.toInt().toString() }
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Target Reps", style = MaterialTheme.typography.bodyLarge)
                                 Text(
-                                    viewModel.formatWeight(setReadyState.adjustedWeight, weightUnit),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
+                                    "AMRAP",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
-                                IconButton(onClick = {
-                                    viewModel.updateSetReadyWeight(setReadyState.adjustedWeight + 0.5f)
-                                }) {
-                                    Icon(Icons.Default.Add, "Increase")
-                                }
-                            }
-                        }
-
-                        HorizontalDivider()
-
-                        // Reps adjuster
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Reps", style = MaterialTheme.typography.bodyLarge)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    viewModel.updateSetReadyReps(setReadyState.adjustedReps - 1)
-                                }) {
-                                    Icon(Icons.Default.Remove, "Decrease")
-                                }
-                                Text(
-                                    "${setReadyState.adjustedReps}",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                IconButton(onClick = {
-                                    viewModel.updateSetReadyReps(setReadyState.adjustedReps + 1)
-                                }) {
-                                    Icon(Icons.Default.Add, "Increase")
-                                }
                             }
                         }
                     }
@@ -326,6 +358,107 @@ fun SetReadyScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+}
+
+/**
+ * Echo Level selector - Row of 4 buttons matching RestTimerCard style
+ */
+@Composable
+private fun SetReadyEchoLevelSelector(
+    selectedLevel: EchoLevel,
+    onLevelChange: (EchoLevel) -> Unit
+) {
+    Column {
+        Text(
+            text = "ECHO LEVEL",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 1.sp
+        )
+
+        Spacer(modifier = Modifier.height(Spacing.small))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    MaterialTheme.colorScheme.surfaceContainerLowest,
+                    RoundedCornerShape(Spacing.medium)
+                )
+                .padding(Spacing.extraSmall),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.extraSmall)
+        ) {
+            EchoLevel.entries.forEach { level ->
+                val isSelected = level == selectedLevel
+
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(Spacing.small),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLowest
+                    },
+                    onClick = { onLevelChange(level) }
+                ) {
+                    Text(
+                        text = level.displayName,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = Spacing.small),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Eccentric Load slider matching RestTimerCard style (0-150%)
+ */
+@Composable
+private fun SetReadyEccentricLoadSlider(
+    percent: Int,
+    onPercentChange: (Int) -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "ECCENTRIC LOAD",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = "$percent%",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(Spacing.small))
+
+        Slider(
+            value = percent.toFloat(),
+            onValueChange = { onPercentChange(it.toInt()) },
+            valueRange = 0f..150f,
+            steps = 29, // 5% increments: 0, 5, 10, ... 150
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }

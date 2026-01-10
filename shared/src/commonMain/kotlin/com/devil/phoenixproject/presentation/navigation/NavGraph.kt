@@ -252,7 +252,16 @@ fun NavGraph(
                 )
             }
         ) { backStackEntry ->
-            val exerciseId = backStackEntry.arguments?.read { getStringOrNull("exerciseId") } ?: return@composable
+            val exerciseId = backStackEntry.arguments?.read { getStringOrNull("exerciseId") }
+
+            // Handle null/invalid exerciseId - navigate back instead of blank screen
+            if (exerciseId.isNullOrBlank()) {
+                LaunchedEffect(Unit) {
+                    navController.popBackStack()
+                }
+                return@composable
+            }
+
             ExerciseDetailScreen(
                 exerciseId = exerciseId,
                 navController = navController,
@@ -340,7 +349,8 @@ fun NavGraph(
             }
         ) {
             BadgesScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                mainViewModel = viewModel
             )
         }
 
@@ -397,7 +407,16 @@ fun NavGraph(
             route = NavigationRoutes.CycleReview.route,
             arguments = listOf(navArgument("cycleId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val cycleId = backStackEntry.arguments?.read { getStringOrNull("cycleId") } ?: return@composable
+            val cycleId = backStackEntry.arguments?.read { getStringOrNull("cycleId") }
+
+            // Handle null/invalid cycleId - navigate back instead of blank screen
+            if (cycleId.isNullOrBlank()) {
+                LaunchedEffect(Unit) {
+                    navController.popBackStack()
+                }
+                return@composable
+            }
+
             val routines by viewModel.routines.collectAsState()
             val cycleRepository: TrainingCycleRepository = koinInject()
 
@@ -438,7 +457,8 @@ fun NavGraph(
                             navController.navigate(NavigationRoutes.TrainingCycles.route) {
                                 popUpTo(NavigationRoutes.TrainingCycles.route) { inclusive = true }
                             }
-                        }
+                        },
+                        viewModel = viewModel
                     )
                 }
             }

@@ -12,6 +12,7 @@ import com.devil.phoenixproject.presentation.components.PRCelebrationDialog
 import org.koin.compose.koinInject
 import com.devil.phoenixproject.data.repository.GamificationRepository
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
+import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.util.setKeepScreenOn
 import kotlinx.coroutines.delay
@@ -49,6 +50,7 @@ fun ActiveWorkoutScreen(
     val isAutoConnecting by viewModel.isAutoConnecting.collectAsState()
     val connectionError by viewModel.connectionError.collectAsState()
     val userPreferences by viewModel.userPreferences.collectAsState()
+    val routineFlowState by viewModel.routineFlowState.collectAsState()
 
     // State for confirmation dialog
     var showExitConfirmation by remember { mutableStateOf(false) }
@@ -157,6 +159,30 @@ fun ActiveWorkoutScreen(
                 hasNavigatedAway = true
                 navController.navigateUp()
             }
+        }
+    }
+
+    // Watch for routine flow state changes to navigate to SetReady or Complete screens
+    // This handles the autoplay OFF case where Summary -> SetReady (no rest timer)
+    LaunchedEffect(routineFlowState) {
+        if (hasNavigatedAway) return@LaunchedEffect
+
+        when (routineFlowState) {
+            is RoutineFlowState.SetReady -> {
+                Logger.d { "ActiveWorkoutScreen: RoutineFlowState.SetReady - navigating to SetReady" }
+                hasNavigatedAway = true
+                navController.navigate(NavigationRoutes.SetReady.route) {
+                    popUpTo(NavigationRoutes.RoutineOverview.route) { inclusive = false }
+                }
+            }
+            is RoutineFlowState.Complete -> {
+                Logger.d { "ActiveWorkoutScreen: RoutineFlowState.Complete - navigating to RoutineComplete" }
+                hasNavigatedAway = true
+                navController.navigate(NavigationRoutes.RoutineComplete.route) {
+                    popUpTo(NavigationRoutes.RoutineOverview.route) { inclusive = false }
+                }
+            }
+            else -> {}
         }
     }
 

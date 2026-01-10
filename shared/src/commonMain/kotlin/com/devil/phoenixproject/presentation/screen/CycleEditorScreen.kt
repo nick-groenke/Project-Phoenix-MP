@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -42,6 +41,11 @@ fun CycleEditorScreen(
     // Collect ViewModel state
     val uiState by cycleEditorViewModel.uiState.collectAsState()
 
+    // Clear topbar title to allow dynamic title from EnhancedMainScreen
+    LaunchedEffect(Unit) {
+        viewModel.updateTopBarTitle("")
+    }
+
     // Initialize ViewModel with cycle data
     LaunchedEffect(cycleId, initialDayCount) {
         cycleEditorViewModel.initialize(cycleId, initialDayCount)
@@ -71,37 +75,6 @@ fun CycleEditorScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        TextField(
-                            value = uiState.cycleName,
-                            onValueChange = { cycleEditorViewModel.updateCycleName(it) },
-                            placeholder = { Text("Cycle Name") },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
-                            ),
-                            textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            singleLine = true
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { saveCycle() }) {
-                        Text("Preview", fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
-        },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { cycleEditorViewModel.showAddDaySheet(true) }
@@ -116,6 +89,27 @@ fun CycleEditorScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Editable cycle name with Preview button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = uiState.cycleName,
+                    onValueChange = { cycleEditorViewModel.updateCycleName(it) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Cycle Name") },
+                    textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    singleLine = true
+                )
+                Button(onClick = { saveCycle() }) {
+                    Text("Preview")
+                }
+            }
+
             // Description field
             OutlinedTextField(
                 value = uiState.description,
