@@ -1,0 +1,174 @@
+-- Migration 10: Schema Enforcement via Create-Copy-Drop-Rename
+--
+-- This migration ensures RoutineExercise has the CORRECT final schema regardless
+-- of what broken state the user might be in from previous failed migrations.
+--
+-- Why this approach:
+-- 1. ALTER TABLE ADD COLUMN crashes on iOS if column already exists
+-- 2. We can't use IF NOT EXISTS for columns in SQLite
+-- 3. Create-Copy-Drop-Rename is the only idempotent approach
+--
+-- This migration handles ALL edge cases:
+-- - User completed all migrations successfully (no-op, same data)
+-- - User has missing columns from failed migration 3, 4, or 7
+-- - User has orphaned temp tables from partial migrations
+
+-- ============================================================
+-- CRITICAL: Disable foreign keys for this migration
+-- PlannedSet (from migration 6) references RoutineExercise.
+-- DROP TABLE RoutineExercise will fail if FK constraints are enabled.
+-- ============================================================
+PRAGMA foreign_keys = OFF;
+
+-- ============================================================
+-- STEP 1: Clean up any orphaned temp tables from failed migrations
+-- ============================================================
+DROP TABLE IF EXISTS RoutineExercise_new;
+DROP TABLE IF EXISTS RoutineExercise_v10;
+
+-- ============================================================
+-- STEP 2: Ensure Superset table exists (may be missing if migration 4 failed)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS Superset (
+    id TEXT PRIMARY KEY NOT NULL,
+    routineId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    colorIndex INTEGER NOT NULL DEFAULT 0,
+    restBetweenSeconds INTEGER NOT NULL DEFAULT 10,
+    orderIndex INTEGER NOT NULL,
+    FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_superset_routine ON Superset(routineId);
+
+-- ============================================================
+-- STEP 3: Create the DEFINITIVE RoutineExercise schema
+-- This matches VitruvianDatabase.sq exactly
+-- ============================================================
+CREATE TABLE RoutineExercise_v10 (
+    id TEXT NOT NULL PRIMARY KEY,
+    routineId TEXT NOT NULL,
+    exerciseName TEXT NOT NULL,
+    exerciseMuscleGroup TEXT NOT NULL DEFAULT '',
+    exerciseEquipment TEXT NOT NULL DEFAULT '',
+    exerciseDefaultCableConfig TEXT NOT NULL DEFAULT 'DOUBLE',
+    exerciseId TEXT,
+    cableConfig TEXT NOT NULL DEFAULT 'DOUBLE',
+    orderIndex INTEGER NOT NULL,
+    setReps TEXT NOT NULL DEFAULT '10,10,10',
+    weightPerCableKg REAL NOT NULL DEFAULT 0.0,
+    setWeights TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'OldSchool',
+    eccentricLoad INTEGER NOT NULL DEFAULT 100,
+    echoLevel INTEGER NOT NULL DEFAULT 1,
+    progressionKg REAL NOT NULL DEFAULT 0.0,
+    restSeconds INTEGER NOT NULL DEFAULT 60,
+    duration INTEGER,
+    setRestSeconds TEXT NOT NULL DEFAULT '[]',
+    perSetRestTime INTEGER NOT NULL DEFAULT 0,
+    isAMRAP INTEGER NOT NULL DEFAULT 0,
+    -- Superset support (container model from migration 4)
+    supersetId TEXT,
+    orderInSuperset INTEGER NOT NULL DEFAULT 0,
+    -- PR percentage scaling (from migration 7)
+    usePercentOfPR INTEGER NOT NULL DEFAULT 0,
+    weightPercentOfPR INTEGER NOT NULL DEFAULT 80,
+    prTypeForScaling TEXT NOT NULL DEFAULT 'MAX_WEIGHT',
+    setWeightsPercentOfPR TEXT,
+    FOREIGN KEY (routineId) REFERENCES Routine(id) ON DELETE CASCADE,
+    FOREIGN KEY (exerciseId) REFERENCES Exercise(id) ON DELETE SET NULL,
+    FOREIGN KEY (supersetId) REFERENCES Superset(id) ON DELETE SET NULL
+);
+
+-- ============================================================
+-- STEP 4: Copy data from old table
+--
+-- IMPORTANT: This migration only runs after migrations 1-9 succeed.
+-- At version 9, RoutineExercise MUST have all these columns:
+-- - Base columns (existed in v1): id, routineId, exerciseName, etc.
+-- - Migration 4 columns: supersetId, orderInSuperset
+-- - Migration 7 columns: usePercentOfPR, weightPercentOfPR, prTypeForScaling, setWeightsPercentOfPR
+--
+-- COALESCE handles NULL values, not missing columns.
+-- If a column is missing, the SELECT will crash - but that means the user's
+-- schema is fundamentally broken beyond what SQL migrations can fix.
+-- ============================================================
+INSERT INTO RoutineExercise_v10 (
+    id, routineId, exerciseName, exerciseMuscleGroup, exerciseEquipment,
+    exerciseDefaultCableConfig, exerciseId, cableConfig, orderIndex, setReps,
+    weightPerCableKg, setWeights, mode, eccentricLoad, echoLevel, progressionKg,
+    restSeconds, duration, setRestSeconds, perSetRestTime, isAMRAP,
+    supersetId, orderInSuperset,
+    usePercentOfPR, weightPercentOfPR, prTypeForScaling, setWeightsPercentOfPR
+)
+SELECT
+    id,
+    routineId,
+    exerciseName,
+    COALESCE(exerciseMuscleGroup, ''),
+    COALESCE(exerciseEquipment, ''),
+    COALESCE(exerciseDefaultCableConfig, 'DOUBLE'),
+    -- ORPHAN PROTECTION: Only copy exerciseId if it exists in Exercise table
+    CASE
+        WHEN exerciseId IS NOT NULL AND exerciseId IN (SELECT id FROM Exercise) THEN exerciseId
+        ELSE NULL
+    END,
+    COALESCE(cableConfig, 'DOUBLE'),
+    orderIndex,
+    COALESCE(setReps, '10,10,10'),
+    COALESCE(weightPerCableKg, 0.0),
+    COALESCE(setWeights, ''),
+    COALESCE(mode, 'OldSchool'),
+    COALESCE(eccentricLoad, 100),
+    COALESCE(echoLevel, 1),
+    COALESCE(progressionKg, 0.0),
+    COALESCE(restSeconds, 60),
+    duration,
+    COALESCE(setRestSeconds, '[]'),
+    COALESCE(perSetRestTime, 0),
+    COALESCE(isAMRAP, 0),
+    -- ORPHAN PROTECTION: Only copy supersetId if it exists in Superset table
+    CASE
+        WHEN supersetId IS NOT NULL AND supersetId != '' AND supersetId IN (SELECT id FROM Superset) THEN supersetId
+        ELSE NULL
+    END,
+    COALESCE(orderInSuperset, 0),
+    COALESCE(usePercentOfPR, 0),
+    COALESCE(weightPercentOfPR, 80),
+    COALESCE(prTypeForScaling, 'MAX_WEIGHT'),
+    setWeightsPercentOfPR
+FROM RoutineExercise
+-- ORPHAN PROTECTION: Skip rows where routineId doesn't exist (orphaned exercises are useless)
+WHERE routineId IN (SELECT id FROM Routine);
+
+-- ============================================================
+-- STEP 5: Drop old table and rename new one
+-- ============================================================
+DROP TABLE RoutineExercise;
+
+ALTER TABLE RoutineExercise_v10 RENAME TO RoutineExercise;
+
+-- ============================================================
+-- STEP 6: Recreate indexes
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_routine_exercise_routine ON RoutineExercise(routineId);
+CREATE INDEX IF NOT EXISTS idx_routine_exercise_superset ON RoutineExercise(supersetId);
+
+-- ============================================================
+-- STEP 7: Clean up orphaned supersetId references
+-- ============================================================
+UPDATE RoutineExercise SET supersetId = NULL
+WHERE supersetId IS NOT NULL
+  AND supersetId NOT IN (SELECT id FROM Superset);
+
+-- ============================================================
+-- STEP 8: Clean up orphaned PlannedSet rows
+-- PlannedSet references RoutineExercise - remove any orphaned rows
+-- ============================================================
+DELETE FROM PlannedSet
+WHERE routine_exercise_id NOT IN (SELECT id FROM RoutineExercise);
+
+-- ============================================================
+-- STEP 9: Re-enable foreign keys
+-- ============================================================
+PRAGMA foreign_keys = ON;
