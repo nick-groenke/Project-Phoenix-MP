@@ -232,7 +232,13 @@ actual class DriverFactory(private val context: Context) {
                             "ALTER TABLE CycleDay ADD COLUMN eccentric_load_percent INTEGER",
                             "ALTER TABLE CycleDay ADD COLUMN weight_progression_percent REAL",
                             "ALTER TABLE CycleDay ADD COLUMN rep_modifier INTEGER",
-                            "ALTER TABLE CycleDay ADD COLUMN rest_time_override_seconds INTEGER"
+                            "ALTER TABLE CycleDay ADD COLUMN rest_time_override_seconds INTEGER",
+                            // Fallback: Add missing columns to CycleProgress if table existed without them
+                            // CREATE TABLE IF NOT EXISTS won't add columns to existing tables
+                            "ALTER TABLE CycleProgress ADD COLUMN last_advanced_at INTEGER",
+                            "ALTER TABLE CycleProgress ADD COLUMN completed_days TEXT",
+                            "ALTER TABLE CycleProgress ADD COLUMN missed_days TEXT",
+                            "ALTER TABLE CycleProgress ADD COLUMN rotation_count INTEGER NOT NULL DEFAULT 0"
                         )
                         7 -> listOf(
                             // PR percentage scaling columns for RoutineExercise (Issue #57)
@@ -242,6 +248,15 @@ actual class DriverFactory(private val context: Context) {
                             "ALTER TABLE RoutineExercise ADD COLUMN setWeightsPercentOfPR TEXT"
                         )
                         8 -> listOf(
+                            // Create Superset if missing (so DELETE/SELECT below don't crash)
+                            """CREATE TABLE IF NOT EXISTS Superset (
+                                id TEXT PRIMARY KEY NOT NULL,
+                                routineId TEXT NOT NULL,
+                                name TEXT NOT NULL,
+                                colorIndex INTEGER NOT NULL DEFAULT 0,
+                                restBetweenSeconds INTEGER NOT NULL DEFAULT 10,
+                                orderIndex INTEGER NOT NULL
+                            )""",
                             // Schema healing: clean up empty string artifacts from legacy data
                             "UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId = ''",
                             "DELETE FROM Superset WHERE id = ''",
@@ -252,6 +267,15 @@ actual class DriverFactory(private val context: Context) {
                             "UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId IS NOT NULL AND supersetId NOT IN (SELECT id FROM Superset)"
                         )
                         9 -> listOf(
+                            // Create Superset if missing (so SELECT below doesn't crash)
+                            """CREATE TABLE IF NOT EXISTS Superset (
+                                id TEXT PRIMARY KEY NOT NULL,
+                                routineId TEXT NOT NULL,
+                                name TEXT NOT NULL,
+                                colorIndex INTEGER NOT NULL DEFAULT 0,
+                                restBetweenSeconds INTEGER NOT NULL DEFAULT 10,
+                                orderIndex INTEGER NOT NULL
+                            )""",
                             // Final cleanup: Remove orphaned supersetId references after composite ID regeneration
                             // Migration 9.sqm converts Superset IDs to composite format (routineId_originalId)
                             // This catches any references that still point to non-existent Superset rows

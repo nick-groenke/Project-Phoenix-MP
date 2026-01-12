@@ -66,6 +66,7 @@ actual class DriverFactory {
         // Migration 6: Training cycle tables
         ensureTrainingCycleTablesExist(driver)
         ensureCycleDayColumnsExist(driver)  // Add missing columns to existing CycleDay table
+        ensureCycleProgressColumnsExist(driver)  // Add missing columns to existing CycleProgress table
         verifyCriticalTablesExist(driver)
         // Migration 7: PR percentage columns
         ensureRoutineExercisePRColumnsExist(driver)
@@ -676,6 +677,57 @@ actual class DriverFactory {
     }
 
     /**
+     * Ensure CycleProgress table has all columns from the current schema.
+     * This is critical because CREATE TABLE IF NOT EXISTS does NOT add missing columns
+     * to existing tables. If the table was created with an older schema, it will be
+     * missing columns like last_advanced_at, completed_days, missed_days, rotation_count.
+     *
+     * Without this fix, SELECT * FROM CycleProgress will fail when the app expects
+     * 9 columns but the table only has 5.
+     */
+    private fun ensureCycleProgressColumnsExist(driver: SqlDriver) {
+        // First check if the table exists - if not, ensureTrainingCycleTablesExist will create it
+        if (!checkTableExists(driver, "CycleProgress")) {
+            NSLog("iOS DB: CycleProgress table doesn't exist, will be created by ensureTrainingCycleTablesExist")
+            return
+        }
+
+        // Columns that might be missing from older schema versions
+        // Note: id, cycle_id, current_day_number, last_completed_date, cycle_start_date are the base columns
+        // The following columns were added in later schema updates
+        val columns = listOf(
+            "last_advanced_at" to "ALTER TABLE CycleProgress ADD COLUMN last_advanced_at INTEGER",
+            "completed_days" to "ALTER TABLE CycleProgress ADD COLUMN completed_days TEXT",
+            "missed_days" to "ALTER TABLE CycleProgress ADD COLUMN missed_days TEXT",
+            "rotation_count" to "ALTER TABLE CycleProgress ADD COLUMN rotation_count INTEGER NOT NULL DEFAULT 0"
+        )
+
+        var columnsAdded = 0
+        for ((columnName, sql) in columns) {
+            try {
+                if (!checkColumnExists(driver, "CycleProgress", columnName)) {
+                    driver.execute(null, sql, 0)
+                    columnsAdded++
+                    NSLog("iOS DB: Added missing column '$columnName' to CycleProgress")
+                }
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("duplicate column", ignoreCase = true)) {
+                    NSLog("iOS DB: Column '$columnName' already exists (OK)")
+                } else {
+                    NSLog("iOS DB ERROR: Failed to add column '$columnName' to CycleProgress: $msg")
+                }
+            }
+        }
+
+        if (columnsAdded > 0) {
+            NSLog("iOS DB: Added $columnsAdded missing columns to CycleProgress")
+        } else {
+            NSLog("iOS DB: All CycleProgress columns present")
+        }
+    }
+
+    /**
      * Migrate legacy superset data from old columns to new container model.
      * Migration 3 added: supersetGroupId, supersetOrder, supersetRestSeconds
      * Migration 4 converted to: supersetId, orderInSuperset + Superset table
@@ -1198,11 +1250,16 @@ actual class DriverFactory {
     }
 
     /**
-     * Rebuild CycleDay table using Rename-Aside pattern.
+     * Rebuild CycleDay table using ATOMIC Rename-Aside pattern.
      * This ensures all required columns exist, even if the table was created
      * with an older schema that's missing new columns.
+     *
+     * CRITICAL: If CREATE new table fails after RENAME, we MUST restore the backup
+     * to prevent leaving the database without a CycleDay table.
      */
     private fun rebuildCycleDayTable(driver: SqlDriver) {
+        var backupCreated = false
+
         try {
             // Step 1: Create dummy table if missing (so rename always works)
             driver.execute(null, """
@@ -1218,8 +1275,9 @@ actual class DriverFactory {
 
             // Step 2: Rename existing to backup
             driver.execute(null, "ALTER TABLE CycleDay RENAME TO CycleDay_premig_backup", 0)
+            backupCreated = true
 
-            // Step 3: Create new table with full schema
+            // Step 3: Create new table with full schema INCLUDING FOREIGN KEYS
             driver.execute(null, """
                 CREATE TABLE CycleDay (
                     id TEXT PRIMARY KEY NOT NULL,
@@ -1232,7 +1290,9 @@ actual class DriverFactory {
                     eccentric_load_percent INTEGER,
                     weight_progression_percent REAL,
                     rep_modifier INTEGER,
-                    rest_time_override_seconds INTEGER
+                    rest_time_override_seconds INTEGER,
+                    FOREIGN KEY (cycle_id) REFERENCES TrainingCycle(id) ON DELETE CASCADE,
+                    FOREIGN KEY (routine_id) REFERENCES Routine(id) ON DELETE SET NULL
                 )
             """.trimIndent(), 0)
 
@@ -1242,25 +1302,46 @@ actual class DriverFactory {
                 SELECT id, cycle_id, day_number, name, routine_id, is_rest_day FROM CycleDay_premig_backup
             """.trimIndent(), 0)
 
-            // Step 5: Drop backup
+            // Step 5: Drop backup (only after successful rebuild)
             driver.execute(null, "DROP TABLE IF EXISTS CycleDay_premig_backup", 0)
+            backupCreated = false
 
-            NSLog("iOS DB Pre-migration: CycleDay table rebuilt successfully")
+            NSLog("iOS DB Pre-migration: CycleDay table rebuilt successfully with FK constraints")
         } catch (e: Exception) {
-            NSLog("iOS DB Pre-migration: CycleDay rebuild note: ${e.message}")
-            // Try cleanup in case we left backup behind
-            try {
-                driver.execute(null, "DROP TABLE IF EXISTS CycleDay_premig_backup", 0)
-            } catch (_: Exception) {}
+            NSLog("iOS DB Pre-migration: CycleDay rebuild error: ${e.message}")
+
+            // CRITICAL: If backup was created but new table wasn't, RESTORE the backup
+            if (backupCreated) {
+                try {
+                    // Check if new CycleDay table exists
+                    driver.executeQuery(null, "SELECT 1 FROM CycleDay LIMIT 1", { QueryResult.Value(Unit) }, 0)
+                    // New table exists, safe to drop backup
+                    driver.execute(null, "DROP TABLE IF EXISTS CycleDay_premig_backup", 0)
+                    NSLog("iOS DB Pre-migration: CycleDay backup cleaned up")
+                } catch (_: Exception) {
+                    // New table doesn't exist - RESTORE backup to prevent data loss
+                    try {
+                        driver.execute(null, "ALTER TABLE CycleDay_premig_backup RENAME TO CycleDay", 0)
+                        NSLog("iOS DB Pre-migration: CycleDay RESTORED from backup (prevented data loss)")
+                    } catch (restoreError: Exception) {
+                        NSLog("iOS DB Pre-migration: CRITICAL - Failed to restore CycleDay: ${restoreError.message}")
+                    }
+                }
+            }
         }
     }
 
     /**
-     * Rebuild CycleProgress table using Rename-Aside pattern.
+     * Rebuild CycleProgress table using ATOMIC Rename-Aside pattern.
      * This ensures all required columns exist, even if the table was created
      * with an older schema that's missing new columns like rotation_count.
+     *
+     * CRITICAL: If CREATE new table fails after RENAME, we MUST restore the backup
+     * to prevent leaving the database without a CycleProgress table.
      */
     private fun rebuildCycleProgressTable(driver: SqlDriver) {
+        var backupCreated = false
+
         try {
             // Step 1: Create dummy table if missing (so rename always works)
             driver.execute(null, """
@@ -1275,8 +1356,9 @@ actual class DriverFactory {
 
             // Step 2: Rename existing to backup
             driver.execute(null, "ALTER TABLE CycleProgress RENAME TO CycleProgress_premig_backup", 0)
+            backupCreated = true
 
-            // Step 3: Create new table with full schema
+            // Step 3: Create new table with full schema INCLUDING FOREIGN KEY
             driver.execute(null, """
                 CREATE TABLE CycleProgress (
                     id TEXT PRIMARY KEY NOT NULL,
@@ -1287,7 +1369,8 @@ actual class DriverFactory {
                     last_advanced_at INTEGER,
                     completed_days TEXT,
                     missed_days TEXT,
-                    rotation_count INTEGER NOT NULL DEFAULT 0
+                    rotation_count INTEGER NOT NULL DEFAULT 0,
+                    FOREIGN KEY (cycle_id) REFERENCES TrainingCycle(id) ON DELETE CASCADE
                 )
             """.trimIndent(), 0)
 
@@ -1297,16 +1380,32 @@ actual class DriverFactory {
                 SELECT id, cycle_id, current_day_number, last_completed_date, cycle_start_date FROM CycleProgress_premig_backup
             """.trimIndent(), 0)
 
-            // Step 5: Drop backup
+            // Step 5: Drop backup (only after successful rebuild)
             driver.execute(null, "DROP TABLE IF EXISTS CycleProgress_premig_backup", 0)
+            backupCreated = false
 
-            NSLog("iOS DB Pre-migration: CycleProgress table rebuilt successfully")
+            NSLog("iOS DB Pre-migration: CycleProgress table rebuilt successfully with FK constraint")
         } catch (e: Exception) {
-            NSLog("iOS DB Pre-migration: CycleProgress rebuild note: ${e.message}")
-            // Try cleanup in case we left backup behind
-            try {
-                driver.execute(null, "DROP TABLE IF EXISTS CycleProgress_premig_backup", 0)
-            } catch (_: Exception) {}
+            NSLog("iOS DB Pre-migration: CycleProgress rebuild error: ${e.message}")
+
+            // CRITICAL: If backup was created but new table wasn't, RESTORE the backup
+            if (backupCreated) {
+                try {
+                    // Check if new CycleProgress table exists
+                    driver.executeQuery(null, "SELECT 1 FROM CycleProgress LIMIT 1", { QueryResult.Value(Unit) }, 0)
+                    // New table exists, safe to drop backup
+                    driver.execute(null, "DROP TABLE IF EXISTS CycleProgress_premig_backup", 0)
+                    NSLog("iOS DB Pre-migration: CycleProgress backup cleaned up")
+                } catch (_: Exception) {
+                    // New table doesn't exist - RESTORE backup to prevent data loss
+                    try {
+                        driver.execute(null, "ALTER TABLE CycleProgress_premig_backup RENAME TO CycleProgress", 0)
+                        NSLog("iOS DB Pre-migration: CycleProgress RESTORED from backup (prevented data loss)")
+                    } catch (restoreError: Exception) {
+                        NSLog("iOS DB Pre-migration: CRITICAL - Failed to restore CycleProgress: ${restoreError.message}")
+                    }
+                }
+            }
         }
     }
 

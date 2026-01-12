@@ -58,7 +58,20 @@ CREATE TABLE PlannedSet_temp (
     rest_seconds INTEGER
 );
 
--- Copy data if PlannedSet exists (may not exist for users who crashed during Migration 6)
+-- Create dummy PlannedSet if missing (so SELECT below doesn't crash)
+-- Users who crashed during Migration 6 may not have this table at all
+CREATE TABLE IF NOT EXISTS PlannedSet (
+    id TEXT PRIMARY KEY NOT NULL,
+    routine_exercise_id TEXT NOT NULL,
+    set_number INTEGER NOT NULL,
+    set_type TEXT NOT NULL DEFAULT 'STANDARD',
+    target_reps INTEGER,
+    target_weight_kg REAL,
+    target_rpe INTEGER,
+    rest_seconds INTEGER
+);
+
+-- Copy data if PlannedSet has any (safe now that table exists)
 INSERT OR IGNORE INTO PlannedSet_temp (id, routine_exercise_id, set_number, set_type, target_reps, target_weight_kg, target_rpe, rest_seconds)
 SELECT id, routine_exercise_id, set_number, COALESCE(set_type, 'STANDARD'), target_reps, target_weight_kg, target_rpe, rest_seconds
 FROM PlannedSet;
@@ -71,6 +84,21 @@ DROP TABLE IF EXISTS PlannedSet;
 -- Then DROP original to remove FK references
 -- ============================================================
 CREATE TABLE CompletedSet_temp (
+    id TEXT PRIMARY KEY NOT NULL,
+    session_id TEXT NOT NULL,
+    planned_set_id TEXT,
+    set_number INTEGER NOT NULL,
+    set_type TEXT NOT NULL DEFAULT 'STANDARD',
+    actual_reps INTEGER NOT NULL,
+    actual_weight_kg REAL NOT NULL,
+    logged_rpe INTEGER,
+    is_pr INTEGER NOT NULL DEFAULT 0,
+    completed_at INTEGER NOT NULL
+);
+
+-- Create dummy CompletedSet if missing (so SELECT below doesn't crash)
+-- Users who crashed during Migration 6 may not have this table at all
+CREATE TABLE IF NOT EXISTS CompletedSet (
     id TEXT PRIMARY KEY NOT NULL,
     session_id TEXT NOT NULL,
     planned_set_id TEXT,
@@ -224,6 +252,18 @@ CREATE TABLE IF NOT EXISTS TrainingCycle (
 );
 
 -- 8b. CycleDay - Copy to temp, drop, recreate with full schema
+
+-- Create dummy CycleDay if missing (so SELECT below doesn't crash)
+-- Users who crashed during Migration 6 may not have this table at all
+CREATE TABLE IF NOT EXISTS CycleDay (
+    id TEXT PRIMARY KEY NOT NULL,
+    cycle_id TEXT NOT NULL,
+    day_number INTEGER NOT NULL,
+    name TEXT,
+    routine_id TEXT,
+    is_rest_day INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE CycleDay_temp (
     id TEXT PRIMARY KEY NOT NULL,
     cycle_id TEXT NOT NULL,
@@ -233,7 +273,7 @@ CREATE TABLE CycleDay_temp (
     is_rest_day INTEGER NOT NULL DEFAULT 0
 );
 
--- Copy BASE columns only (these exist in all versions)
+-- Copy BASE columns only (these exist in all versions, table guaranteed to exist now)
 INSERT OR IGNORE INTO CycleDay_temp (id, cycle_id, day_number, name, routine_id, is_rest_day)
 SELECT id, cycle_id, day_number, name, routine_id, is_rest_day FROM CycleDay;
 
@@ -262,6 +302,17 @@ DROP TABLE CycleDay_temp;
 CREATE INDEX IF NOT EXISTS idx_cycle_day_cycle ON CycleDay(cycle_id);
 
 -- 8c. CycleProgress - Copy to temp, drop, recreate with full schema
+
+-- Create dummy CycleProgress if missing (so SELECT below doesn't crash)
+-- Users who crashed during Migration 6 may not have this table at all
+CREATE TABLE IF NOT EXISTS CycleProgress (
+    id TEXT PRIMARY KEY NOT NULL,
+    cycle_id TEXT NOT NULL,
+    current_day_number INTEGER NOT NULL DEFAULT 1,
+    last_completed_date INTEGER,
+    cycle_start_date INTEGER NOT NULL
+);
+
 CREATE TABLE CycleProgress_temp (
     id TEXT PRIMARY KEY NOT NULL,
     cycle_id TEXT NOT NULL,

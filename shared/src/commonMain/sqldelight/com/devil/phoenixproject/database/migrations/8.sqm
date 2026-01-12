@@ -8,6 +8,17 @@
 -- This removes any Superset with empty string id and cleans up references
 -- ============================================================
 
+-- Create dummy Superset if missing (so DELETE below doesn't crash)
+-- Users who crashed during Migration 4 may not have this table at all
+CREATE TABLE IF NOT EXISTS Superset (
+    id TEXT PRIMARY KEY NOT NULL,
+    routineId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    colorIndex INTEGER NOT NULL DEFAULT 0,
+    restBetweenSeconds INTEGER NOT NULL DEFAULT 10,
+    orderIndex INTEGER NOT NULL
+);
+
 -- First, clear invalid supersetId references in RoutineExercise
 UPDATE RoutineExercise SET supersetId = NULL WHERE supersetId = '';
 
@@ -20,6 +31,17 @@ DELETE FROM Superset WHERE id = '';
 -- missing columns to existing tables. We use Copy-Drop-Recreate.
 -- ============================================================
 
+-- Create dummy CycleDay if missing (so SELECT below doesn't crash)
+-- Users who crashed during Migration 6 may not have this table at all
+CREATE TABLE IF NOT EXISTS CycleDay (
+    id TEXT PRIMARY KEY NOT NULL,
+    cycle_id TEXT NOT NULL,
+    day_number INTEGER NOT NULL,
+    name TEXT,
+    routine_id TEXT,
+    is_rest_day INTEGER NOT NULL DEFAULT 0
+);
+
 -- Create temp table to hold existing data (BASE columns only)
 CREATE TABLE IF NOT EXISTS CycleDay_fix8_temp (
     id TEXT PRIMARY KEY NOT NULL,
@@ -30,7 +52,7 @@ CREATE TABLE IF NOT EXISTS CycleDay_fix8_temp (
     is_rest_day INTEGER NOT NULL DEFAULT 0
 );
 
--- Copy existing data (if CycleDay exists)
+-- Copy existing data (table now guaranteed to exist)
 INSERT OR IGNORE INTO CycleDay_fix8_temp (id, cycle_id, day_number, name, routine_id, is_rest_day)
 SELECT id, cycle_id, day_number, name, routine_id, is_rest_day FROM CycleDay;
 
