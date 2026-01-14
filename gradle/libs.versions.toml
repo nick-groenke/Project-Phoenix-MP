@@ -2,7 +2,7 @@
 # Kotlin and KMP
 kotlin = "2.3.0"
 agp = "8.13.2"
-compose-multiplatform = "1.10.0-rc02"
+compose-multiplatform = "1.10.0"
 
 # Kotlinx
 kotlinx-coroutines = "1.10.2"
