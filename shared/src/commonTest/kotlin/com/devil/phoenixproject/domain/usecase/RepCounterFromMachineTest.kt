@@ -180,7 +180,25 @@ class RepCounterFromMachineTest {
     }
 
     @Test
-    fun `pending rep is cleared on down movement`() {
+    fun `pending rep persists through down movement until machine confirm`() {
+        // Issue #163: pending rep is NOT cleared on down movement - waits for machine confirm
+        // This prevents the count from dropping back between BOTTOM and machine confirm
+        repCounter.configure(warmupTarget = 0, workingTarget = 10, isJustLift = false, stopAtTop = false)
+
+        // Establish baseline and go up
+        repCounter.process(repsRomCount = 0, repsSetCount = 0, up = 0, down = 0)
+        repCounter.process(repsRomCount = 0, repsSetCount = 0, up = 1, down = 0)
+
+        // Go down - pending should STILL be true (waiting for machine confirm)
+        repCounter.process(repsRomCount = 0, repsSetCount = 0, up = 1, down = 1)
+
+        val countBeforeConfirm = repCounter.getRepCount()
+        assertTrue(countBeforeConfirm.hasPendingRep, "Pending rep should persist until machine confirm")
+    }
+
+    @Test
+    fun `pending rep is cleared when machine confirms rep`() {
+        // Issue #163: pending rep is cleared when repsSetCount increases (machine confirm)
         repCounter.configure(warmupTarget = 0, workingTarget = 10, isJustLift = false, stopAtTop = false)
 
         // Establish baseline and go up
@@ -190,8 +208,12 @@ class RepCounterFromMachineTest {
         // Go down
         repCounter.process(repsRomCount = 0, repsSetCount = 0, up = 1, down = 1)
 
-        val count = repCounter.getRepCount()
-        assertFalse(count.hasPendingRep)
+        // Machine confirms the rep (repsSetCount increases)
+        repCounter.process(repsRomCount = 1, repsSetCount = 1, up = 1, down = 1)
+
+        val countAfterConfirm = repCounter.getRepCount()
+        assertFalse(countAfterConfirm.hasPendingRep, "Pending rep should be cleared after machine confirm")
+        assertEquals(1, countAfterConfirm.workingReps)
     }
 
     // ========== Position Range Tests ==========
