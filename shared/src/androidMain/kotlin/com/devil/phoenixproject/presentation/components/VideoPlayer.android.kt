@@ -18,7 +18,11 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import co.touchlab.kermit.Logger
@@ -52,12 +56,37 @@ actual fun VideoPlayer(
     var errorMessage by remember { mutableStateOf("") }
 
     // Create ExoPlayer instance with proper lifecycle management
+    // Uses short timeouts to prevent ANR when network is unreachable (Issue #178)
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ALL
-            volume = 0f // Mute - these are silent preview videos
-            playWhenReady = true
-        }
+        // Short HTTP timeouts (5s connect, 5s read) to fail fast when network is unreachable
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(5_000)
+            .setReadTimeoutMs(5_000)
+            .setAllowCrossProtocolRedirects(true)
+
+        val dataSourceFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+
+        // Smaller buffers appropriate for short preview videos
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                2_000,   // minBufferMs: 2 seconds (default 50s)
+                5_000,   // maxBufferMs: 5 seconds (default 50s)
+                1_000,   // bufferForPlaybackMs: 1 second (default 2.5s)
+                2_000    // bufferForPlaybackAfterRebufferMs: 2 seconds (default 5s)
+            )
+            .build()
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
+            .build()
+            .apply {
+                repeatMode = Player.REPEAT_MODE_ALL
+                volume = 0f // Mute - these are silent preview videos
+                playWhenReady = true
+            }
     }
 
     // Update media item when URL changes
