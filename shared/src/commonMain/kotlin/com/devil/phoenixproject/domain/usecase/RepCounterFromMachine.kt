@@ -805,6 +805,24 @@ data class RepRanges(
     val lastRepBottomB: Float? = null
 ) {
     /**
+     * Check if cable A is active (has built meaningful range of motion).
+     * Used to determine whether to show cable position indicators.
+     */
+    fun isCableAActive(minRangeThreshold: Float = 50f): Boolean {
+        if (minPosA == null || maxPosA == null) return false
+        return (maxPosA - minPosA) > minRangeThreshold
+    }
+
+    /**
+     * Check if cable B is active (has built meaningful range of motion).
+     * Used to determine whether to show cable position indicators.
+     */
+    fun isCableBActive(minRangeThreshold: Float = 50f): Boolean {
+        if (minPosB == null || maxPosB == null) return false
+        return (maxPosB - minPosB) > minRangeThreshold
+    }
+
+    /**
      * Check if position is in danger zone (within 5% of ROM minimum).
      * Used to trigger red color warning on position bars.
      *

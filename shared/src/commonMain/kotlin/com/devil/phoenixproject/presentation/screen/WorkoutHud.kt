@@ -166,48 +166,55 @@ fun WorkoutHud(
             }
 
             // PERIPHERAL VISION BARS (Pinned to edges, overlaying the pager)
+            // Only show bars for cables that have built meaningful range of motion
             if (metric != null) {
                 // Calculate danger zone status for both cables
                 val isDangerA = repRanges?.isInDangerZone(metric.positionA, metric.positionB) ?: false
                 val isDangerB = isDangerA  // Same check applies to both (symmetric)
 
-                // Left Bar
-                EnhancedCablePositionBar(
-                    label = "L",
-                    currentPosition = metric.positionA,
-                    velocity = metric.velocityA,
-                    minPosition = repRanges?.minPosA,
-                    maxPosition = repRanges?.maxPosA,
-                    // Ghost indicators: use last rep's rolling average positions
-                    ghostMin = repRanges?.lastRepBottomA,
-                    ghostMax = repRanges?.lastRepTopA,
-                    // isActive defaults to true - bars only shown during Active state anyway
-                    isDanger = isDangerA,
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .width(24.dp) // Thinner for HUD
-                        .fillMaxHeight(0.6f)
-                        .padding(start = 4.dp)
-                )
+                // Determine which cables are active (have meaningful ROM)
+                val isCableAActive = repRanges?.isCableAActive() ?: false
+                val isCableBActive = repRanges?.isCableBActive() ?: false
 
-                // Right Bar
-                EnhancedCablePositionBar(
-                    label = "R",
-                    currentPosition = metric.positionB,
-                    velocity = metric.velocityB,
-                    minPosition = repRanges?.minPosB,
-                    maxPosition = repRanges?.maxPosB,
-                    // Ghost indicators: use last rep's rolling average positions
-                    ghostMin = repRanges?.lastRepBottomB,
-                    ghostMax = repRanges?.lastRepTopB,
-                    // isActive defaults to true - bars only shown during Active state anyway
-                    isDanger = isDangerB,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .width(24.dp) // Thinner for HUD
-                        .fillMaxHeight(0.6f)
-                        .padding(end = 4.dp)
-                )
+                // Left Bar - only show if cable A has meaningful movement
+                if (isCableAActive) {
+                    EnhancedCablePositionBar(
+                        label = "L",
+                        currentPosition = metric.positionA,
+                        velocity = metric.velocityA,
+                        minPosition = repRanges?.minPosA,
+                        maxPosition = repRanges?.maxPosA,
+                        // Ghost indicators: use last rep's rolling average positions
+                        ghostMin = repRanges?.lastRepBottomA,
+                        ghostMax = repRanges?.lastRepTopA,
+                        isDanger = isDangerA,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .width(24.dp) // Thinner for HUD
+                            .fillMaxHeight(0.6f)
+                            .padding(start = 4.dp)
+                    )
+                }
+
+                // Right Bar - only show if cable B has meaningful movement
+                if (isCableBActive) {
+                    EnhancedCablePositionBar(
+                        label = "R",
+                        currentPosition = metric.positionB,
+                        velocity = metric.velocityB,
+                        minPosition = repRanges?.minPosB,
+                        maxPosition = repRanges?.maxPosB,
+                        // Ghost indicators: use last rep's rolling average positions
+                        ghostMin = repRanges?.lastRepBottomB,
+                        ghostMax = repRanges?.lastRepTopB,
+                        isDanger = isDangerB,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(24.dp) // Thinner for HUD
+                            .fillMaxHeight(0.6f)
+                            .padding(end = 4.dp)
+                    )
+                }
             }
         }
     }
