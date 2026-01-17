@@ -172,6 +172,11 @@ class MainViewModel constructor(
     private val _repCount = MutableStateFlow(RepCount())
     val repCount: StateFlow<RepCount> = _repCount.asStateFlow()
 
+    // Issue #192: Timed exercise countdown - remaining seconds for duration-based exercises
+    // null = not a timed exercise or timer not running, positive = seconds remaining
+    private val _timedExerciseRemainingSeconds = MutableStateFlow<Int?>(null)
+    val timedExerciseRemainingSeconds: StateFlow<Int?> = _timedExerciseRemainingSeconds.asStateFlow()
+
     private val _repRanges = MutableStateFlow<com.devil.phoenixproject.domain.usecase.RepRanges?>(null)
     val repRanges: StateFlow<com.devil.phoenixproject.domain.usecase.RepRanges?> = _repRanges.asStateFlow()
 
@@ -908,10 +913,16 @@ class MainViewModel constructor(
                 collectedMetrics.clear()  // Clear metrics from previous workout
                 _hapticEvents.emit(HapticEvent.WORKOUT_START)
 
-                // Bodyweight timer - auto-complete after duration
+                // Bodyweight timer - auto-complete after duration with countdown display
+                // Issue #192: Show countdown timer in UI during timed exercises
                 bodyweightTimerJob?.cancel()
                 bodyweightTimerJob = viewModelScope.launch {
-                    delay(bodyweightDuration * 1000L)
+                    _timedExerciseRemainingSeconds.value = bodyweightDuration
+                    for (remaining in bodyweightDuration downTo 1) {
+                        _timedExerciseRemainingSeconds.value = remaining
+                        delay(1000L)
+                    }
+                    _timedExerciseRemainingSeconds.value = 0
                     handleSetCompletion()
                 }
 
@@ -1038,11 +1049,17 @@ class MainViewModel constructor(
             collectedMetrics.clear()  // Clear metrics from previous workout
             _hapticEvents.emit(HapticEvent.WORKOUT_START)
 
-            // For timed cable exercises, start auto-complete timer
+            // For timed cable exercises, start auto-complete timer with countdown display
+            // Issue #192: Show countdown timer in UI during timed exercises
             if (isTimedCableExercise && exerciseDuration != null) {
                 bodyweightTimerJob?.cancel()
                 bodyweightTimerJob = viewModelScope.launch {
-                    delay(exerciseDuration * 1000L)
+                    _timedExerciseRemainingSeconds.value = exerciseDuration
+                    for (remaining in exerciseDuration downTo 1) {
+                        _timedExerciseRemainingSeconds.value = remaining
+                        delay(1000L)
+                    }
+                    _timedExerciseRemainingSeconds.value = 0
                     handleSetCompletion()
                 }
             }
@@ -1103,6 +1120,8 @@ class MainViewModel constructor(
         // after transitioning to the next exercise (would cause premature completion)
         bodyweightTimerJob?.cancel()
         bodyweightTimerJob = null
+        // Issue #192: Clear timed exercise countdown display
+        _timedExerciseRemainingSeconds.value = null
 
         // Cancel any running rest timer to prevent it from starting the next set
         // after user has manually stopped the workout (fixes haptic firing and edit-blocking bugs)
@@ -1696,6 +1715,8 @@ class MainViewModel constructor(
         // Cancel any active timers
         restTimerJob?.cancel()
         bodyweightTimerJob?.cancel()
+        // Issue #192: Clear timed exercise countdown display
+        _timedExerciseRemainingSeconds.value = null
         resetAutoStopState()
 
         // Issue #172: Async navigation with proper BLE cleanup to ensure machine is in BASELINE mode
@@ -3158,6 +3179,8 @@ class MainViewModel constructor(
         // (e.g., rep target reached) while a duration timer is still running
         bodyweightTimerJob?.cancel()
         bodyweightTimerJob = null
+        // Issue #192: Clear timed exercise countdown display
+        _timedExerciseRemainingSeconds.value = null
 
         viewModelScope.launch {
             val params = _workoutParameters.value
@@ -4048,6 +4071,8 @@ class MainViewModel constructor(
         // This prevents premature completion of the next exercise
         bodyweightTimerJob?.cancel()
         bodyweightTimerJob = null
+        // Issue #192: Clear timed exercise countdown display
+        _timedExerciseRemainingSeconds.value = null
 
         val routine = _loadedRoutine.value ?: return
 

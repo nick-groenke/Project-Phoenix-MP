@@ -62,6 +62,7 @@ fun WorkoutHud(
     currentHeuristicKgMax: Float = 0f, // Echo mode: actual measured force per cable (kg)
     loadBaselineA: Float = 0f, // Load baseline for cable A (base tension to subtract)
     loadBaselineB: Float = 0f, // Load baseline for cable B (base tension to subtract)
+    timedExerciseRemainingSeconds: Int? = null, // Issue #192: Countdown for timed exercises
     modifier: Modifier = Modifier
 ) {
     // Determine if we're in Echo mode
@@ -122,7 +123,8 @@ fun WorkoutHud(
                             loadBaselineB = loadBaselineB,
                             exerciseName = exerciseName,
                             currentSetIndex = currentSetIndex,
-                            totalSets = totalSets
+                            totalSets = totalSets,
+                            timedExerciseRemainingSeconds = timedExerciseRemainingSeconds
                         )
                     }
                     1 -> InstructionPage(
@@ -326,8 +328,12 @@ private fun ExecutionPage(
     loadBaselineB: Float = 0f, // Load baseline for cable B (base tension to subtract)
     exerciseName: String? = null, // Current exercise name (null for Just Lift)
     currentSetIndex: Int = 0, // Current set (0-based)
-    totalSets: Int = 0 // Total number of sets for current exercise
+    totalSets: Int = 0, // Total number of sets for current exercise
+    timedExerciseRemainingSeconds: Int? = null // Issue #192: Countdown for timed exercises
 ) {
+    // Issue #192: Check if this is a timed exercise
+    val isTimedExercise = timedExerciseRemainingSeconds != null
+
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -362,49 +368,73 @@ private fun ExecutionPage(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // Issue #163: Animated Rep Counter with stable progress display
-        // Shows phase label and animated counter during working reps
-        // Shows warmup counter during warmup phase
-        Text(
-            if (repCount.isWarmupComplete) "REP" else "WARMUP",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            letterSpacing = 2.sp
-        )
-
-        if (repCount.isWarmupComplete) {
-            // Issue #163: Animated working rep counter
-            // Shows the current rep being performed with animated visual feedback:
-            // - IDLE: Solid confirmed count
-            // - CONCENTRIC: Outline reveals bottom-to-top
-            // - ECCENTRIC: Fill reveals top-to-bottom
-            AnimatedRepCounter(
-                nextRepNumber = repCount.workingReps + 1,
-                phase = repCount.activeRepPhase,
-                phaseProgress = repCount.phaseProgress,
-                confirmedReps = repCount.workingReps,
-                targetReps = workoutParameters.reps,
-                showStableCounter = false,  // We show it separately below
-                size = 120.dp
+        // Issue #192: Show countdown timer for timed exercises, rep counter for normal exercises
+        if (isTimedExercise && timedExerciseRemainingSeconds != null) {
+            // Timed exercise - show countdown timer
+            val remainingSeconds = timedExerciseRemainingSeconds // Smart cast to non-null
+            Text(
+                "TIME",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 2.sp
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Stable "X / Y" progress display - always visible and stable
-            if (!workoutParameters.isJustLift && !workoutParameters.isAMRAP && workoutParameters.reps > 0) {
-                StableRepProgress(
-                    confirmedReps = repCount.workingReps,
-                    targetReps = workoutParameters.reps
-                )
-            }
-        } else {
-            // Warmup counter (non-animated)
+            // Large countdown display
             Text(
-                text = "${repCount.warmupReps} / ${workoutParameters.warmupReps}",
+                text = "${remainingSeconds}s",
                 style = MaterialTheme.typography.displayLarge.copy(fontSize = 120.sp),
                 fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (remainingSeconds <= 5)
+                    MaterialTheme.colorScheme.error // Highlight last 5 seconds
+                else
+                    MaterialTheme.colorScheme.primary
             )
+        } else {
+            // Normal exercise - show rep counter
+            // Issue #163: Animated Rep Counter with stable progress display
+            // Shows phase label and animated counter during working reps
+            // Shows warmup counter during warmup phase
+            Text(
+                if (repCount.isWarmupComplete) "REP" else "WARMUP",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 2.sp
+            )
+
+            if (repCount.isWarmupComplete) {
+                // Issue #163: Animated working rep counter
+                // Shows the current rep being performed with animated visual feedback:
+                // - IDLE: Solid confirmed count
+                // - CONCENTRIC: Outline reveals bottom-to-top
+                // - ECCENTRIC: Fill reveals top-to-bottom
+                AnimatedRepCounter(
+                    nextRepNumber = repCount.workingReps + 1,
+                    phase = repCount.activeRepPhase,
+                    phaseProgress = repCount.phaseProgress,
+                    confirmedReps = repCount.workingReps,
+                    targetReps = workoutParameters.reps,
+                    showStableCounter = false,  // We show it separately below
+                    size = 120.dp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Stable "X / Y" progress display - always visible and stable
+                if (!workoutParameters.isJustLift && !workoutParameters.isAMRAP && workoutParameters.reps > 0) {
+                    StableRepProgress(
+                        confirmedReps = repCount.workingReps,
+                        targetReps = workoutParameters.reps
+                    )
+                }
+            } else {
+                // Warmup counter (non-animated)
+                Text(
+                    text = "${repCount.warmupReps} / ${workoutParameters.warmupReps}",
+                    style = MaterialTheme.typography.displayLarge.copy(fontSize = 120.sp),
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
