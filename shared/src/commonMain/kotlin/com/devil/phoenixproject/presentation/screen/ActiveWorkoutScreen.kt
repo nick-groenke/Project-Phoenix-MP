@@ -1,7 +1,9 @@
 package com.devil.phoenixproject.presentation.screen
 
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
 import com.devil.phoenixproject.data.repository.ExerciseRepository
 import com.devil.phoenixproject.domain.model.*
@@ -12,6 +14,7 @@ import com.devil.phoenixproject.presentation.components.PRCelebrationDialog
 import org.koin.compose.koinInject
 import com.devil.phoenixproject.data.repository.GamificationRepository
 import com.devil.phoenixproject.presentation.viewmodel.MainViewModel
+import com.devil.phoenixproject.presentation.navigation.NavigationRoutes
 import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.util.setKeepScreenOn
 import kotlinx.coroutines.delay
@@ -49,6 +52,7 @@ fun ActiveWorkoutScreen(
     val isAutoConnecting by viewModel.isAutoConnecting.collectAsState()
     val connectionError by viewModel.connectionError.collectAsState()
     val userPreferences by viewModel.userPreferences.collectAsState()
+    val routineFlowState by viewModel.routineFlowState.collectAsState()
 
     // State for confirmation dialog
     var showExitConfirmation by remember { mutableStateOf(false) }
@@ -67,6 +71,20 @@ fun ActiveWorkoutScreen(
     LaunchedEffect(Unit) {
         viewModel.badgeEarnedEvents.collect { badges ->
             earnedBadges = badges
+        }
+    }
+
+    // Issue #172: Snackbar for user feedback messages (e.g., navigation blocked)
+    val snackbarHostState = remember { SnackbarHostState() }
+    val snackbarScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        viewModel.userFeedbackEvents.collect { message ->
+            snackbarScope.launch {
+                snackbarHostState.showSnackbar(
+                    message = message,
+                    duration = SnackbarDuration.Short
+                )
+            }
         }
     }
 
@@ -160,15 +178,59 @@ fun ActiveWorkoutScreen(
         }
     }
 
+    // Watch for routine flow state changes to navigate to SetReady or Complete screens
+    // This handles the autoplay OFF case where Summary -> SetReady (no rest timer)
+    // IMPORTANT: Only navigate when workout is Idle - otherwise we create a navigation loop
+    // because startSetFromReady() sets workoutState to Countdown/Active but keeps routineFlowState
+    // as SetReady. SetReadyScreen navigates here on workoutState change, and if we navigate back
+    // immediately based on routineFlowState still being SetReady, we get infinite flickering.
+    LaunchedEffect(routineFlowState, workoutState) {
+        if (hasNavigatedAway) return@LaunchedEffect
+
+        // Only navigate to SetReady when workout has finished (Idle state)
+        // During Active/Countdown/Summary/Resting, we should stay on this screen
+        // Issue #142: Added SetSummary and Resting to prevent immediate navigation away
+        // before user can see the set summary screen with countdown
+        val isWorkoutActive = workoutState is WorkoutState.Active ||
+                              workoutState is WorkoutState.Countdown ||
+                              workoutState is WorkoutState.Initializing ||
+                              workoutState is WorkoutState.SetSummary ||
+                              workoutState is WorkoutState.Resting
+
+        when (routineFlowState) {
+            is RoutineFlowState.SetReady -> {
+                if (!isWorkoutActive) {
+                    Logger.d { "ActiveWorkoutScreen: RoutineFlowState.SetReady + Idle - navigating to SetReady" }
+                    hasNavigatedAway = true
+                    navController.navigate(NavigationRoutes.SetReady.route) {
+                        popUpTo(NavigationRoutes.RoutineOverview.route) { inclusive = false }
+                    }
+                }
+            }
+            is RoutineFlowState.Complete -> {
+                Logger.d { "ActiveWorkoutScreen: RoutineFlowState.Complete - navigating to RoutineComplete" }
+                hasNavigatedAway = true
+                navController.navigate(NavigationRoutes.RoutineComplete.route) {
+                    popUpTo(NavigationRoutes.RoutineOverview.route) { inclusive = false }
+                }
+            }
+            else -> {}
+        }
+    }
+
     // Use the new state holder pattern for cleaner API
     // Issue #53: Compute canGoBack/canSkipForward based on routine and exercise index
     val canGoBack = loadedRoutine != null && currentExerciseIndex > 0
     val canSkipForward = loadedRoutine != null && currentExerciseIndex < (loadedRoutine?.exercises?.size ?: 0) - 1
 
+    // Issue #167: autoplayEnabled now derived from summaryCountdownSeconds
+    // 0 (Unlimited) = autoplay OFF, != 0 (-1 or 5-30) = autoplay ON
+    val autoplayEnabled = userPreferences.summaryCountdownSeconds != 0
+
     val workoutUiState = remember(
         connectionState, workoutState, currentMetric, currentHeuristicKgMax, workoutParameters,
         repCount, repRanges, autoStopState, weightUnit, enableVideoPlayback,
-        loadedRoutine, currentExerciseIndex, currentSetIndex, userPreferences.autoplayEnabled,
+        loadedRoutine, currentExerciseIndex, currentSetIndex, autoplayEnabled,
         userPreferences.summaryCountdownSeconds, loadBaselineA, loadBaselineB, canGoBack, canSkipForward
     ) {
         WorkoutUiState(
@@ -185,7 +247,7 @@ fun ActiveWorkoutScreen(
             loadedRoutine = loadedRoutine,
             currentExerciseIndex = currentExerciseIndex,
             currentSetIndex = currentSetIndex,
-            autoplayEnabled = userPreferences.autoplayEnabled,
+            autoplayEnabled = autoplayEnabled,
             summaryCountdownSeconds = userPreferences.summaryCountdownSeconds,
             isWorkoutSetupDialogVisible = false,
             showConnectionCard = false,
@@ -210,11 +272,12 @@ fun ActiveWorkoutScreen(
             },
             onStopWorkout = { showExitConfirmation = true },
             onSkipRest = { viewModel.skipRest() },
+            onSkipCountdown = { viewModel.skipCountdown() },
             onProceedFromSummary = { viewModel.proceedFromSummary() },
             onRpeLogged = { rpe -> viewModel.logRpeForCurrentSet(rpe) },
             onResetForNewWorkout = { viewModel.resetForNewWorkout() },
             onStartNextExercise = { viewModel.advanceToNextExercise() },
-            onJumpToExercise = { /* Not used in ActiveWorkoutScreen */ },
+            onJumpToExercise = { viewModel.jumpToExercise(it) },
             onUpdateParameters = { viewModel.updateWorkoutParameters(it) },
             onShowWorkoutSetupDialog = { /* Not used in ActiveWorkoutScreen */ },
             onHideWorkoutSetupDialog = { /* Not used in ActiveWorkoutScreen */ },
@@ -224,12 +287,18 @@ fun ActiveWorkoutScreen(
         )
     }
 
-    WorkoutTab(
-        state = workoutUiState,
-        actions = workoutActions,
-        exerciseRepository = exerciseRepository,
-        hapticEvents = hapticEvents
-    )
+    // Issue #172: Scaffold wrapper for Snackbar support (user feedback messages)
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { paddingValues ->
+        WorkoutTab(
+            state = workoutUiState,
+            actions = workoutActions,
+            exerciseRepository = exerciseRepository,
+            hapticEvents = hapticEvents,
+            modifier = Modifier.padding(paddingValues)
+        )
+    }
 
     // Exit confirmation dialog
     if (showExitConfirmation) {
@@ -242,9 +311,18 @@ fun ActiveWorkoutScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.stopWorkout()
+                        // Use exitingWorkout=true to reset state to Idle and clear routine context
+                        // This prevents stale SetSummary state from blocking editing after exit
+                        viewModel.stopWorkout(exitingWorkout = true)
                         showExitConfirmation = false
-                        navController.navigateUp()
+
+                        // Smart navigation: if in routine flow, go back to DailyRoutines
+                        // to avoid blank RoutineOverviewScreen (which returns early when routine is null)
+                        if (routineFlowState != RoutineFlowState.NotInRoutine) {
+                            navController.popBackStack(NavigationRoutes.DailyRoutines.route, inclusive = false)
+                        } else {
+                            navController.navigateUp()
+                        }
                     }
                 ) {
                     Text("Exit")

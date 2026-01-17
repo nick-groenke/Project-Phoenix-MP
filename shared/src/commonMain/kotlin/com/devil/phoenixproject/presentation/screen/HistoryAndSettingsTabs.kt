@@ -927,7 +927,6 @@ fun MetricItem(label: String, value: String) {
 @Composable
 fun SettingsTab(
     weightUnit: WeightUnit,
-    autoplayEnabled: Boolean,
     stopAtTop: Boolean,
     enableVideoPlayback: Boolean,
     darkModeEnabled: Boolean,
@@ -937,7 +936,6 @@ fun SettingsTab(
     autoStartCountdownSeconds: Int = 5,
     selectedColorSchemeIndex: Int = 0,
     onWeightUnitChange: (WeightUnit) -> Unit,
-    onAutoplayChange: (Boolean) -> Unit,
     onStopAtTopChange: (Boolean) -> Unit,
     onEnableVideoPlaybackChange: (Boolean) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
@@ -964,6 +962,11 @@ fun SettingsTab(
     onDiscoModeToggle: (Boolean) -> Unit = {},
     onPlayDiscoSound: () -> Unit = {},
     onTestSounds: () -> Unit = {},
+    // Simulator mode Easter egg
+    simulatorModeUnlocked: Boolean = false,
+    simulatorModeEnabled: Boolean = false,
+    onSimulatorModeUnlocked: () -> Unit = {},
+    onSimulatorModeToggle: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showDeleteAllDialog by remember { mutableStateOf(false) }
@@ -982,6 +985,11 @@ fun SettingsTab(
     var lastTapTime by remember { mutableStateOf(0L) }
     // Disco mode unlock celebration dialog
     var showDiscoUnlockDialog by remember { mutableStateOf(false) }
+    // Simulator mode unlock celebration dialog
+    var showSimulatorUnlockDialog by remember { mutableStateOf(false) }
+    // Separate easter egg tap counter for simulator mode
+    var simulatorEasterEggTapCount by remember { mutableStateOf(0) }
+    var simulatorLastTapTime by remember { mutableStateOf(0L) }
     // Optimistic UI state for immediate visual feedback
     var localWeightUnit by remember(weightUnit) { mutableStateOf(weightUnit) }
 
@@ -1280,66 +1288,43 @@ fun SettingsTab(
             }
                 Spacer(modifier = Modifier.height(Spacing.small))
 
-                // Autoplay toggle
+                // Issue #167: Summary Countdown now controls autoplay behavior
+                // - Off (-1): Skip summary, auto-advance immediately
+                // - Unlimited (0): Show summary, wait for manual tap (like old autoplay OFF)
+                // - 5-30s: Show summary, auto-advance after countdown (like old autoplay ON)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Autoplay Routines",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium,
+                            text = "Set Summary",
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Automatically advance to next exercise after rest timer",
+                            text = "Off = skip summary, Unlimited = manual, 5-30s = auto-advance",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(
-                        checked = autoplayEnabled,
-                        onCheckedChange = onAutoplayChange
-                    )
-                }
 
-                // Summary Countdown - only show when autoplay is enabled
-                if (autoplayEnabled) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Summary Countdown",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Time before auto-advancing to next exercise",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    CountdownDropdown(
+                        label = "",
+                        selectedValue = summaryCountdownSeconds,
+                        options = listOf(-1, 0, 5, 10, 15, 20, 25, 30),
+                        onValueSelected = { onSummaryCountdownChange(it) },
+                        modifier = Modifier.width(120.dp),
+                        formatLabel = {
+                            when (it) {
+                                -1 -> "Off"        // Skip summary entirely
+                                0 -> "Unlimited"   // Show summary, no auto-advance
+                                else -> "${it}s"
+                            }
                         }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        CountdownDropdown(
-                            label = "",
-                            selectedValue = summaryCountdownSeconds,
-                            options = listOf(0, 5, 10, 15, 20, 25, 30),
-                            onValueSelected = { onSummaryCountdownChange(it) },
-                            modifier = Modifier.width(100.dp),
-                            formatLabel = { if (it == 0) "Off" else "${it}s" }
-                        )
-                    }
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -1976,25 +1961,49 @@ fun SettingsTab(
                     .fillMaxWidth()
                     .padding(Spacing.medium)
             ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Easter egg: tap the header 7 times rapidly to unlock simulator mode
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable {
+                    val currentTime = KmpUtils.currentTimeMillis()
+                    // Reset if more than 2 seconds since last tap
+                    if (currentTime - simulatorLastTapTime > 2000L) {
+                        simulatorEasterEggTapCount = 1
+                    } else {
+                        simulatorEasterEggTapCount++
+                    }
+                    simulatorLastTapTime = currentTime
+
+                    // Unlock simulator mode after 7 rapid taps
+                    if (simulatorEasterEggTapCount >= 7 && !simulatorModeUnlocked) {
+                        showSimulatorUnlockDialog = true
+                        onSimulatorModeUnlocked()
+                        simulatorEasterEggTapCount = 0
+                    }
+                }
+            ) {
                 Box(
                     modifier = Modifier
                         .size(48.dp) // Material 3 Expressive: Larger (was 40dp)
                         .shadow(8.dp, RoundedCornerShape(20.dp)) // Material 3 Expressive: More shadow, more rounded (was 16dp)
                         .background(
                             Brush.linearGradient(
-                                colors = listOf(Color(0xFFF59E0B), Color(0xFFEF4444))
+                                colors = if (simulatorModeUnlocked) {
+                                    listOf(Color(0xFF9333EA), Color(0xFF4F46E5)) // Purple gradient when unlocked
+                                } else {
+                                    listOf(Color(0xFFF59E0B), Color(0xFFEF4444))
+                                }
                             ),
                             RoundedCornerShape(20.dp) // Material 3 Expressive: More rounded (was 16dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.BugReport,
-                        contentDescription = "View connection logs",
+                        if (simulatorModeUnlocked) Icons.Default.Code else Icons.Default.BugReport,
+                        contentDescription = "Developer Tools",
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(24.dp) // Material 3 Expressive: Larger icon
-                    ) 
+                    )
                 }
                 Spacer(modifier = Modifier.width(Spacing.medium))
                 Text(
@@ -2070,6 +2079,54 @@ fun SettingsTab(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                // Simulator mode toggle (only visible when unlocked)
+                if (simulatorModeUnlocked) {
+                    Spacer(modifier = Modifier.height(Spacing.medium))
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = Spacing.small),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "🔧",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.small))
+                            Column {
+                                Text(
+                                    "BLE Simulator",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "Use virtual machine for testing",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = simulatorModeEnabled,
+                            onCheckedChange = { onSimulatorModeToggle(it) }
+                        )
+                    }
+
+                    // Info text about restart
+                    Spacer(modifier = Modifier.height(Spacing.small))
+                    Text(
+                        if (simulatorModeEnabled) "Restart the app to connect to the virtual machine"
+                        else "Enable to use simulated BLE device instead of real hardware",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (simulatorModeEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
             }
         }
 
@@ -2117,7 +2174,7 @@ fun SettingsTab(
                 )
             }
                 Spacer(modifier = Modifier.height(Spacing.small))
-                Text("Version: 0.3.1", color = MaterialTheme.colorScheme.onSurface)
+                Text("Version: 0.3.3", color = MaterialTheme.colorScheme.onSurface)
                 Spacer(modifier = Modifier.height(Spacing.small))
                 Text(
                     "Open source community project to control Vitruvian Trainer machines locally.",
@@ -2196,6 +2253,42 @@ fun SettingsTab(
         )
     }
 
+    // Simulator Mode Unlock Dialog
+    if (showSimulatorUnlockDialog) {
+        AlertDialog(
+            onDismissRequest = { showSimulatorUnlockDialog = false },
+            title = {
+                Text(
+                    "🔧 Developer Tools Unlocked!",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    "You've unlocked BLE Simulator mode!\n\nEnable it in Developer Tools, then restart the app to connect to a virtual machine instead of real hardware.",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = RoundedCornerShape(28.dp),
+            confirmButton = {
+                TextButton(
+                    onClick = { showSimulatorUnlockDialog = false },
+                    modifier = Modifier.height(56.dp),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Text(
+                        "Got it!",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        )
+    }
+
     // Backup confirmation dialog
     if (showBackupDialog) {
         AlertDialog(
@@ -2205,28 +2298,58 @@ fun SettingsTab(
                 Text("This will export all your workout history, routines, training cycles, achievements, and settings to a JSON file.\n\nYou can use this file to restore your data later or transfer to another device.")
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showBackupDialog = false
-                        backupInProgress = true
-                        scope.launch {
-                            try {
-                                val backup = backupManager.exportAllData()
-                                val result = backupManager.saveToFile(backup)
-                                result.onSuccess { path ->
-                                    backupResult = path
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.small)) {
+                    // Save to Files button
+                    Button(
+                        onClick = {
+                            showBackupDialog = false
+                            backupInProgress = true
+                            scope.launch {
+                                try {
+                                    val backup = backupManager.exportAllData()
+                                    val result = backupManager.saveToFile(backup)
+                                    result.onSuccess { path ->
+                                        backupResult = path
+                                        showResultDialog = true
+                                    }.onFailure { error ->
+                                        backupResult = "Error: ${error.message}"
+                                        showResultDialog = true
+                                    }
+                                } catch (e: Exception) {
+                                    // Handle SQLite exceptions and other errors gracefully
+                                    // instead of crashing the app
+                                    backupResult = "Export failed: ${e.message ?: "Unknown database error"}"
                                     showResultDialog = true
-                                }.onFailure { error ->
-                                    backupResult = "Error: ${error.message}"
-                                    showResultDialog = true
+                                } finally {
+                                    backupInProgress = false
                                 }
-                            } finally {
-                                backupInProgress = false
                             }
                         }
+                    ) {
+                        Text("Save")
                     }
-                ) {
-                    Text("Create Backup")
+                    // Share button
+                    OutlinedButton(
+                        onClick = {
+                            showBackupDialog = false
+                            scope.launch {
+                                try {
+                                    backupManager.shareBackup()
+                                } catch (e: Exception) {
+                                    backupResult = "Share failed: ${e.message ?: "Unknown error"}"
+                                    showResultDialog = true
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Share")
+                    }
                 }
             },
             dismissButton = {

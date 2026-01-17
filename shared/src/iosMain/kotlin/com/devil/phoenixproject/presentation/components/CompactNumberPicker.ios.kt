@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -89,8 +90,18 @@ actual fun CompactNumberPicker(
     // Inline editing state
     var isEditing by remember { mutableStateOf(false) }
     var inputText by remember { mutableStateOf("") }
+    // Issue #166 Fix: Track focus state per edit session to prevent premature commitEdit
+    // hasFocusedOnce is ONLY true after focus is gained in the CURRENT edit session
     var hasFocusedOnce by remember { mutableStateOf(false) }
+    // Guard to prevent commitEdit during initial TextField composition
+    var editSessionReady by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+
+    // Issue #166: Track if user is actively interacting with the wheel
+    // This prevents the external value sync from fighting with scroll position
+    var isUserInteracting by remember { mutableStateOf(false) }
+    // Track the last value we set via scroll to prevent feedback loops
+    var lastScrollSetValue by remember { mutableStateOf(value) }
 
     // Format value for editing (without suffix)
     fun formatValueForEdit(floatVal: Float): String {
@@ -108,39 +119,79 @@ actual fun CompactNumberPicker(
         inputText.toFloatOrNull()?.let { parsed ->
             val clamped = parsed.coerceIn(range)
             val closestIndex = values.indices.minByOrNull { abs(values[it] - clamped) } ?: 0
-            onValueChange(values[closestIndex])
+            val newValue = values[closestIndex]
+            lastScrollSetValue = newValue
+            onValueChange(newValue)
             coroutineScope.launch {
                 listState.animateScrollToItem(closestIndex)
             }
         }
         isEditing = false
+        focusManager.clearFocus()
     }
 
-    // Sync list position when external value changes
-    LaunchedEffect(currentIndex) {
-        if (listState.firstVisibleItemIndex != currentIndex) {
-            listState.animateScrollToItem(currentIndex.coerceAtLeast(0))
+    // Issue #166 Fix: Only sync list position when external value changes from OUTSIDE
+    // (not from our own scroll updates) and user is not currently interacting
+    // IMPORTANT: isEditing MUST be a key to prevent race condition where effect starts
+    // with stale isEditing=false while user is tapping to edit
+    LaunchedEffect(currentIndex, isUserInteracting, isEditing) {
+        if (!isUserInteracting && !isEditing) {
+            // Check if this is a genuine external value change (not from scroll)
+            val externalValueChanged = abs(value - lastScrollSetValue) > 0.001f
+            if (externalValueChanged && listState.firstVisibleItemIndex != currentIndex) {
+                lastScrollSetValue = value
+                listState.animateScrollToItem(currentIndex.coerceAtLeast(0))
+            }
         }
     }
 
     // Focus the text field when editing starts
     LaunchedEffect(isEditing) {
         if (isEditing) {
+            // Issue #166 Fix: Reset focus tracking at start of each edit session
+            // MUST set these BEFORE any delays to prevent race with onFocusChanged
             hasFocusedOnce = false
-            inputText = formatValueForEdit(value)
-            // Small delay to ensure TextField is composed before requesting focus
-            kotlinx.coroutines.delay(100)
-            try { focusRequester.requestFocus() } catch (_: Exception) {}
+            editSessionReady = false
+            // Issue #166 Fix: Use the current scroll position value, not external value
+            val currentScrollIndex = listState.firstVisibleItemIndex.coerceIn(values.indices)
+            val currentScrollValue = if (values.isNotEmpty()) values[currentScrollIndex] else value
+            inputText = formatValueForEdit(currentScrollValue)
+            // Issue #166 Fix: iOS needs more time after clearFocus() before focus can be requested again.
+            // Use retry loop with increasing delays to ensure keyboard appears reliably.
+            for (attempt in 1..3) {
+                kotlinx.coroutines.delay(if (attempt == 1) 150L else 100L)
+                try {
+                    focusRequester.requestFocus()
+                    // Mark session as ready AFTER successful focus request
+                    editSessionReady = true
+                    break // Success, exit retry loop
+                } catch (_: Exception) {
+                    // Focus request failed, will retry if attempts remain
+                }
+            }
+        } else {
+            // Reset when exiting edit mode
+            editSessionReady = false
         }
     }
 
-    // Update value when scroll settles
+    // Track scroll state changes and update value when scroll settles
     LaunchedEffect(listState.isScrollInProgress) {
-        if (!listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            isUserInteracting = true
+        } else {
+            // Scroll stopped - update the value
             val centerIndex = listState.firstVisibleItemIndex
-            if (centerIndex in values.indices && values[centerIndex] != value) {
-                onValueChange(values[centerIndex])
+            if (centerIndex in values.indices) {
+                val scrollValue = values[centerIndex]
+                if (abs(scrollValue - value) > 0.001f) {
+                    lastScrollSetValue = scrollValue
+                    onValueChange(scrollValue)
+                }
             }
+            // Small delay before allowing external sync again
+            kotlinx.coroutines.delay(50)
+            isUserInteracting = false
         }
     }
 
@@ -222,37 +273,58 @@ actual fun CompactNumberPicker(
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected && isEditing) {
-                                // Inline TextField for editing
-                                BasicTextField(
-                                    value = inputText,
-                                    onValueChange = { inputText = it },
-                                    textStyle = TextStyle(
-                                        fontSize = MaterialTheme.typography.headlineMedium.fontSize,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        textAlign = TextAlign.Center
-                                    ),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(
-                                        keyboardType = if (step >= 1.0f) KeyboardType.Number else KeyboardType.Decimal,
-                                        imeAction = ImeAction.Done
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onDone = { commitEdit() }
-                                    ),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(focusRequester)
-                                        .onFocusChanged { focusState ->
-                                            if (focusState.isFocused) {
-                                                hasFocusedOnce = true
-                                            } else if (hasFocusedOnce && isEditing) {
-                                                // Only commit if we actually had focus before losing it
-                                                commitEdit()
+                                // Issue #166 Fix: Row with TextField and visible Done button
+                                // iOS keyboard may not show Done button for numeric input
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    BasicTextField(
+                                        value = inputText,
+                                        onValueChange = { inputText = it },
+                                        textStyle = TextStyle(
+                                            fontSize = MaterialTheme.typography.headlineMedium.fontSize,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            textAlign = TextAlign.Center
+                                        ),
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(
+                                            keyboardType = if (step >= 1.0f) KeyboardType.Number else KeyboardType.Decimal,
+                                            imeAction = ImeAction.Done
+                                        ),
+                                        keyboardActions = KeyboardActions(
+                                            onDone = { commitEdit() }
+                                        ),
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .focusRequester(focusRequester)
+                                            .onFocusChanged { focusState ->
+                                                if (focusState.isFocused) {
+                                                    hasFocusedOnce = true
+                                                } else if (editSessionReady && hasFocusedOnce && isEditing) {
+                                                    // Issue #166 Fix: Only commit if:
+                                                    // 1. editSessionReady = focus was successfully requested (not during initial composition)
+                                                    // 2. hasFocusedOnce = we actually had focus in this session
+                                                    // 3. isEditing = we're still in edit mode
+                                                    commitEdit()
+                                                }
                                             }
-                                        }
-                                )
+                                    )
+                                    // Visible Done button for iOS
+                                    IconButton(
+                                        onClick = { commitEdit() },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Done",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             } else {
                                 // Regular Text display
                                 Text(

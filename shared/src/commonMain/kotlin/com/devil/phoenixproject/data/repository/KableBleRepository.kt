@@ -136,6 +136,13 @@ class KableBleRepository : BleRepository {
         // WaitingForRest timeout (iOS autostart fix)
         // If handles are pre-tensioned when screen loads, allow arming after timeout
         private const val WAITING_FOR_REST_TIMEOUT_MS = 3000L
+
+        // Issue #176: Dynamic baseline threshold for overhead pulley setups
+        // When cables can't reach rest position, detect grab via position CHANGE from baseline
+        private const val GRAB_DELTA_THRESHOLD = 10.0  // Position change (mm) to detect grab
+        // Issue #176: Release delta threshold - position must return within 5mm of baseline
+        // Using 5mm (vs 10mm for grab) provides hysteresis - user must return closer to baseline than where grab triggered
+        private const val RELEASE_DELTA_THRESHOLD = 5.0
     }
 
     // Kable characteristic references - PRIMARY (required for basic operation)
@@ -267,12 +274,6 @@ class KableBleRepository : BleRepository {
     private var handleDetectionEnabled = false
     private var isAutoStartMode = false  // Uses lower velocity threshold for grab detection (Issue #96)
 
-    // Cable configuration for handle release detection (Task 3)
-    // SINGLE/EITHER: Use OR logic (only active cable needs to be at rest)
-    // DOUBLE: Use AND logic (both cables must be at rest)
-    private var currentCableConfig: com.devil.phoenixproject.domain.model.CableConfiguration =
-        com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE
-
     // Connected device info (for logging)
     private var connectedDeviceName: String = ""
     private var connectedDeviceAddress: String = ""
@@ -314,6 +315,12 @@ class KableBleRepository : BleRepository {
 
     // WaitingForRest timeout tracking (iOS autostart fix)
     private var waitingForRestStartTime: Long? = null
+
+    // Issue #176: Baseline position tracking for overhead pulley setups
+    // When cables can't reach absolute rest position (< 5mm), track the "rest baseline"
+    // and detect grabs via position CHANGE from baseline instead of absolute thresholds
+    private var restBaselinePosA: Double? = null
+    private var restBaselinePosB: Double? = null
 
     // Monitor polling job (for explicit control)
     private var monitorPollingJob: kotlinx.coroutines.Job? = null
@@ -1316,6 +1323,9 @@ class KableBleRepository : BleRepository {
             isAutoStartMode = true  // Issue #96: Use lower velocity threshold for grab detection
             // iOS autostart fix: Reset WaitingForRest timeout tracker
             waitingForRestStartTime = null
+            // Issue #176: Reset baseline tracking for fresh grab detection
+            restBaselinePosA = null
+            restBaselinePosB = null
             log.i { "🎯 Monitor polling for AUTO-START - waiting for handles at rest (pos < ${HANDLE_REST_THRESHOLD}mm), vel threshold=${AUTO_START_VELOCITY_THRESHOLD}mm/s" }
         } else {
             isAutoStartMode = false  // Normal mode uses standard velocity threshold
@@ -1459,32 +1469,64 @@ class KableBleRepository : BleRepository {
 
         // Send to NUS TX using WriteWithResponse (V-Form only supports this mode)
         // Note: V-Form devices do NOT advertise WriteWithoutResponse property
-        return try {
-            log.d { "Sending ${command.size}-byte command to NUS TX" }
-            log.d { "Command hex: $commandHex" }
+        // Issue #125: Retry on WriteRequestBusy with exponential backoff
+        val maxRetries = 3
+        var lastException: Exception? = null
 
-            p.write(txCharacteristic, command, WriteType.WithResponse)
-            log.i { "✅ Command sent via NUS TX: ${command.size} bytes" }
+        for (attempt in 0 until maxRetries) {
+            try {
+                if (attempt > 0) {
+                    log.d { "Retry attempt $attempt for ${command.size}-byte command" }
+                } else {
+                    log.d { "Sending ${command.size}-byte command to NUS TX" }
+                    log.d { "Command hex: $commandHex" }
+                }
 
-            logRepo.debug(
-                LogEventType.COMMAND_SENT,
-                "Command sent (NUS TX)",
-                connectedDeviceName,
-                connectedDeviceAddress,
-                "Size: ${command.size} bytes"
-            )
-            Result.success(Unit)
-        } catch (e: Exception) {
-            log.e { "Failed to send command: ${e.message}" }
-            logRepo.error(
-                LogEventType.ERROR,
-                "Failed to send command",
-                connectedDeviceName,
-                connectedDeviceAddress,
-                e.message
-            )
-            Result.failure(e)
+                p.write(txCharacteristic, command, WriteType.WithResponse)
+                log.i { "✅ Command sent via NUS TX: ${command.size} bytes" }
+
+                logRepo.debug(
+                    LogEventType.COMMAND_SENT,
+                    "Command sent (NUS TX)",
+                    connectedDeviceName,
+                    connectedDeviceAddress,
+                    "Size: ${command.size} bytes"
+                )
+                return Result.success(Unit)
+            } catch (e: Exception) {
+                lastException = e
+                // Check if this is a WriteRequestBusy error (retryable)
+                val isBusyError = e.message?.contains("Busy", ignoreCase = true) == true ||
+                    e.message?.contains("WriteRequestBusy", ignoreCase = true) == true
+
+                if (isBusyError && attempt < maxRetries - 1) {
+                    val delayMs = 50L * (attempt + 1)  // 50ms, 100ms, 150ms
+                    log.w { "BLE write busy, retrying in ${delayMs}ms (attempt ${attempt + 1}/$maxRetries)" }
+                    logRepo.warning(
+                        LogEventType.ERROR,
+                        "Write busy, retrying",
+                        connectedDeviceName,
+                        connectedDeviceAddress,
+                        "Attempt ${attempt + 1}, delay ${delayMs}ms"
+                    )
+                    kotlinx.coroutines.delay(delayMs)
+                } else {
+                    // Non-retryable error or max retries reached
+                    break
+                }
+            }
         }
+
+        // All retries failed
+        log.e { "Failed to send command after $maxRetries attempts: ${lastException?.message}" }
+        logRepo.error(
+            LogEventType.ERROR,
+            "Failed to send command",
+            connectedDeviceName,
+            connectedDeviceAddress,
+            lastException?.message
+        )
+        return Result.failure(lastException ?: IllegalStateException("Unknown error"))
     }
 
     // ===== HIGH-LEVEL WORKOUT CONTROL (parity with parent repo) =====
@@ -1586,19 +1628,20 @@ class KableBleRepository : BleRepository {
                 pendingReleasedStartTime = null
                 // iOS autostart fix: Reset WaitingForRest timeout
                 waitingForRestStartTime = null
+                // Issue #176: Reset baseline tracking for fresh grab detection
+                restBaselinePosA = null
+                restBaselinePosB = null
                 log.i { "🎮 Handle state machine reset (no peripheral - will arm when connected)" }
             }
         } else {
             // Disable handle detection but keep polling for metrics
             handleDetectionEnabled = false
             isAutoStartMode = false  // Issue #96: Reset auto-start mode flag
+            // Issue #176: Clear baseline when detection disabled
+            restBaselinePosA = null
+            restBaselinePosB = null
             log.i { "🎮 Handle detection disabled (polling continues for metrics)" }
         }
-    }
-
-    override fun setCableConfiguration(config: com.devil.phoenixproject.domain.model.CableConfiguration) {
-        log.i { "🎯 Cable configuration set to: $config" }
-        currentCableConfig = config
     }
 
     override fun resetHandleState() {
@@ -1611,6 +1654,9 @@ class KableBleRepository : BleRepository {
         // Task 14: Reset hysteresis timers
         pendingGrabbedStartTime = null
         pendingReleasedStartTime = null
+        // Issue #176: Reset baseline tracking for fresh grab detection
+        restBaselinePosA = null
+        restBaselinePosB = null
     }
 
     override fun enableJustLiftWaitingMode() {
@@ -1628,6 +1674,10 @@ class KableBleRepository : BleRepository {
         // Task 14: Reset hysteresis timers
         pendingGrabbedStartTime = null
         pendingReleasedStartTime = null
+
+        // Issue #176: Reset baseline tracking for fresh grab detection
+        restBaselinePosA = null
+        restBaselinePosB = null
 
         // Reset handle state log counter
         handleStateLogCounter = 0L
@@ -1917,6 +1967,7 @@ class KableBleRepository : BleRepository {
             lastTimestamp = currentTime
 
             // Create metric with SMOOTHED velocity (absolute value for backwards compatibility)
+            // Track both cables independently - matches official app behavior
             val metric = WorkoutMetric(
                 timestamp = currentTime,
                 loadA = loadA,
@@ -2070,8 +2121,19 @@ class KableBleRepository : BleRepository {
         // NOTE: Use abs(velocity) since velocity is now signed (Issue #204 fix)
         // Issue #96: Use lower velocity threshold for auto-start grab detection
         val velocityThreshold = if (isAutoStartMode) AUTO_START_VELOCITY_THRESHOLD else VELOCITY_THRESHOLD
-        val handleAGrabbed = posA > HANDLE_GRABBED_THRESHOLD
-        val handleBGrabbed = posB > HANDLE_GRABBED_THRESHOLD
+
+        // Issue #176: Use relative position change when baseline is set (for overhead pulley setups)
+        // When cables can't reach absolute rest position, detect grabs via delta from baseline
+        val handleAGrabbed = if (restBaselinePosA != null) {
+            (posA - restBaselinePosA!!) > GRAB_DELTA_THRESHOLD
+        } else {
+            posA > HANDLE_GRABBED_THRESHOLD
+        }
+        val handleBGrabbed = if (restBaselinePosB != null) {
+            (posB - restBaselinePosB!!) > GRAB_DELTA_THRESHOLD
+        } else {
+            posB > HANDLE_GRABBED_THRESHOLD
+        }
         val handleAMoving = kotlin.math.abs(velocityA) > velocityThreshold
         val handleBMoving = kotlin.math.abs(velocityB) > velocityThreshold
 
@@ -2088,6 +2150,9 @@ class KableBleRepository : BleRepository {
                 if (posA < HANDLE_REST_THRESHOLD && posB < HANDLE_REST_THRESHOLD) {
                     log.i { "✅ Handles at REST (posA=$posA, posB=$posB < $HANDLE_REST_THRESHOLD) - auto-start now ARMED" }
                     waitingForRestStartTime = null
+                    // Issue #176: Capture baseline position (will be ~0 for normal setups)
+                    restBaselinePosA = posA
+                    restBaselinePosB = posB
                     HandleState.Released  // SetComplete = "Released/Armed" state
                 } else {
                     // iOS autostart fix: Add timeout to escape WaitingForRest trap
@@ -2095,13 +2160,30 @@ class KableBleRepository : BleRepository {
                     // the state machine would be stuck forever. After timeout, arm anyway.
                     val currentTime = currentTimeMillis()
                     if (waitingForRestStartTime == null) {
+                        // Start timeout timer
                         waitingForRestStartTime = currentTime
+                        HandleState.WaitingForRest
                     } else if (currentTime - waitingForRestStartTime!! > WAITING_FOR_REST_TIMEOUT_MS) {
-                        log.w { "⚠️ WaitingForRest TIMEOUT (${WAITING_FOR_REST_TIMEOUT_MS}ms) - arming with current position (posA=$posA, posB=$posB)" }
+                        // Issue #176: When timeout fires, check if handles are already grabbed
+                        // If user is already holding handles (position > threshold), use virtual
+                        // baseline of 0 so grab detection triggers immediately when they move.
+                        // Otherwise, use current position as baseline for elevated rest setups.
+                        val alreadyGrabbed = posA > HANDLE_GRABBED_THRESHOLD || posB > HANDLE_GRABBED_THRESHOLD
+                        if (alreadyGrabbed) {
+                            log.w { "⚠️ WaitingForRest TIMEOUT - handles already grabbed (posA=$posA, posB=$posB > $HANDLE_GRABBED_THRESHOLD) - using virtual baseline=0 for immediate grab detection" }
+                            restBaselinePosA = 0.0
+                            restBaselinePosB = 0.0
+                        } else {
+                            log.w { "⚠️ WaitingForRest TIMEOUT (${WAITING_FOR_REST_TIMEOUT_MS}ms) - capturing baseline posA=$posA, posB=$posB for relative grab detection" }
+                            restBaselinePosA = posA
+                            restBaselinePosB = posB
+                        }
                         waitingForRestStartTime = null
-                        HandleState.Released  // Force arm after timeout
+                        HandleState.Released  // Force arm after timeout - NOW ACTUALLY RETURNED!
+                    } else {
+                        // Still waiting for timeout
+                        HandleState.WaitingForRest
                     }
-                    HandleState.WaitingForRest
                 }
             }
 
@@ -2148,29 +2230,26 @@ class KableBleRepository : BleRepository {
             }
 
             HandleState.Grabbed -> {
-                // Task 3: Cable configuration affects release detection logic
-                // SINGLE/EITHER: Only check the handle(s) that were active when grabbed
-                // DOUBLE: Both cables must be at rest
-                val aReleased = posA < HANDLE_REST_THRESHOLD
-                val bReleased = posB < HANDLE_REST_THRESHOLD
+                // Release detection: only check handles that were actually grabbed
+                // Issue #176: Use baseline-relative release detection for overhead pulley setups
+                val aReleased = if (restBaselinePosA != null) {
+                    (posA - restBaselinePosA!!) < RELEASE_DELTA_THRESHOLD
+                } else {
+                    posA < HANDLE_REST_THRESHOLD  // Backwards compatible
+                }
+                val bReleased = if (restBaselinePosB != null) {
+                    (posB - restBaselinePosB!!) < RELEASE_DELTA_THRESHOLD
+                } else {
+                    posB < HANDLE_REST_THRESHOLD  // Backwards compatible
+                }
 
-                // For single-cable exercises, only check release on the handle that was grabbed.
-                // This prevents premature release detection when the unused cable is already at rest.
-                val isReleased = when (currentCableConfig) {
-                    com.devil.phoenixproject.domain.model.CableConfiguration.SINGLE,
-                    com.devil.phoenixproject.domain.model.CableConfiguration.EITHER -> {
-                        // Only check the handle(s) that were active when entering Grabbed
-                        when (activeHandlesMask) {
-                            1 -> aReleased           // Only A was active - check A only
-                            2 -> bReleased           // Only B was active - check B only
-                            3 -> aReleased && bReleased  // Both active - both must release
-                            else -> aReleased || bReleased  // Fallback (shouldn't happen)
-                        }
-                    }
-                    com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE -> {
-                        // BOTH cables must be at rest (traditional bilateral exercise)
-                        aReleased && bReleased
-                    }
+                // Only check release on the handle(s) that were actually grabbed.
+                // This prevents premature release detection when unused cable is at rest.
+                val isReleased = when (activeHandlesMask) {
+                    1 -> aReleased           // Only A was active - check A only
+                    2 -> bReleased           // Only B was active - check B only
+                    3 -> aReleased && bReleased  // Both active - both must release
+                    else -> aReleased || bReleased  // Fallback (shouldn't happen)
                 }
 
                 if (isReleased) {
@@ -2181,7 +2260,7 @@ class KableBleRepository : BleRepository {
                         pendingReleasedStartTime = currentTime
                         HandleState.Grabbed  // Stay grabbed
                     } else if (currentTime - pendingReleasedStartTime!! >= STATE_TRANSITION_DWELL_MS) {
-                        log.d { "RELEASE DETECTED (${currentCableConfig} mask=$activeHandlesMask): posA=$posA, posB=$posB < $HANDLE_REST_THRESHOLD after ${STATE_TRANSITION_DWELL_MS}ms dwell" }
+                        log.d { "RELEASE DETECTED (mask=$activeHandlesMask): posA=$posA (baseline=${restBaselinePosA ?: "none"}), posB=$posB (baseline=${restBaselinePosB ?: "none"}) after ${STATE_TRANSITION_DWELL_MS}ms dwell" }
                         pendingReleasedStartTime = null
                         activeHandlesMask = 0  // Reset for next grab
                         HandleState.Released
@@ -2325,6 +2404,15 @@ class KableBleRepository : BleRepository {
 
             val emitted = _repEvents.tryEmit(notification)
             log.d { "🔥 Emitted rep event (RX): success=$emitted, legacy=${notification.isLegacyFormat}" }
+
+            // Log to user-visible connection logs for Issue #123 diagnosis
+            logRepo.debug(
+                LogEventType.REP_RECEIVED,
+                if (notification.isLegacyFormat) "Legacy rep (6-byte)" else "Modern rep (24-byte)",
+                connectedDeviceName.ifEmpty { null },
+                connectedDeviceAddress.ifEmpty { null },
+                "up=${notification.topCounter}, setCount=${notification.repsSetCount}, legacy=${notification.isLegacyFormat}"
+            )
         } catch (e: Exception) {
             log.e { "Error parsing rep notification: ${e.message}" }
         }
@@ -2412,6 +2500,15 @@ class KableBleRepository : BleRepository {
 
             val emitted = _repEvents.tryEmit(notification)
             log.i { "🔥 Emitted rep event (REPS char): success=$emitted, legacy=${notification.isLegacyFormat}, repsSetCount=${notification.repsSetCount}" }
+
+            // Log to user-visible connection logs for Issue #123 diagnosis
+            logRepo.debug(
+                LogEventType.REP_RECEIVED,
+                if (notification.isLegacyFormat) "Legacy rep (6-byte)" else "Modern rep (24-byte)",
+                connectedDeviceName.ifEmpty { null },
+                connectedDeviceAddress.ifEmpty { null },
+                "up=${notification.topCounter}, setCount=${notification.repsSetCount}, legacy=${notification.isLegacyFormat}"
+            )
         } catch (e: Exception) {
             log.e { "Error parsing REPS characteristic data: ${e.message}" }
         }

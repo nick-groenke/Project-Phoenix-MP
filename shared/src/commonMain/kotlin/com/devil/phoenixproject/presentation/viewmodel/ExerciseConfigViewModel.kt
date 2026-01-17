@@ -190,6 +190,7 @@ class ExerciseConfigViewModel constructor(
 
         _selectedMode.value = exercise.programMode.toWorkoutMode(exercise.echoLevel)
         _weightChange.value = kgToDisplay(exercise.progressionKg, weightUnit).toInt()
+        logDebug("Issue #164: Loaded progressionKg=${exercise.progressionKg}kg → display=${_weightChange.value}")
         _rest.value = exercise.setRestSeconds.firstOrNull()?.coerceIn(0, 300) ?: 60 // Use first rest time or default
         _perSetRestTime.value = exercise.perSetRestTime
         _eccentricLoad.value = exercise.eccentricLoad
@@ -425,6 +426,7 @@ class ExerciseConfigViewModel constructor(
         logDebug("  setRestSeconds: ${updatedExercise.setRestSeconds}")
         logDebug("  perSetRestTime: ${updatedExercise.perSetRestTime}")
         logDebug("  isAMRAP: ${updatedExercise.isAMRAP}")
+        logDebug("  Issue #164: progressionKg: ${updatedExercise.progressionKg}kg (from display: ${_weightChange.value})")
         logDebug("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         onSaveCallback(updatedExercise)

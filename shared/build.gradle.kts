@@ -148,6 +148,11 @@ kotlin {
                 // Charts - Vico (Android only)
                 implementation(libs.vico.charts)
 
+                // Media3 ExoPlayer (for HLS video playback)
+                implementation(libs.media3.exoplayer)
+                implementation(libs.media3.exoplayer.hls)
+                implementation(libs.media3.ui)
+
                 // Compose Preview Tooling (for @Preview in shared module)
                 implementation(compose.uiTooling)
 
@@ -201,6 +206,9 @@ sqldelight {
     databases {
         create("VitruvianDatabase") {
             packageName.set("com.devil.phoenixproject.database")
+            // Version 11 = initial schema (1) + 10 migrations (1.sqm through 10.sqm)
+            // Explicit version ensures migration 10 runs on devices stuck at version 10
+            version = 11
         }
     }
 }

@@ -184,6 +184,8 @@ object BlePacketFactory {
         val effectiveKg = adjustedWeightPerCable + 10.0f
 
         Logger.d("BlePacketFactory") { "=== WORKOUT MODE: ${params.programMode}, Weight: ${params.weightPerCableKg}kg ===" }
+        Logger.d("BlePacketFactory") { "Issue #164: progressionRegressionKg=${params.progressionRegressionKg}kg (sending at offset 0x5c)" }
+        Logger.d("BlePacketFactory") { "Issue #164: adjustedWeightPerCable=${adjustedWeightPerCable}kg (compensated for rep 0 quirk)" }
 
         putFloatLE(frame, 0x54, effectiveKg)
         putFloatLE(frame, 0x58, totalWeightKg)

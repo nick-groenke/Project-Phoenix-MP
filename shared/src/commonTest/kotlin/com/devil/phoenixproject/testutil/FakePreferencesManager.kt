@@ -35,10 +35,6 @@ class FakePreferencesManager : PreferencesManager {
         _preferencesFlow.value = _preferencesFlow.value.copy(weightUnit = unit)
     }
 
-    override suspend fun setAutoplayEnabled(enabled: Boolean) {
-        _preferencesFlow.value = _preferencesFlow.value.copy(autoplayEnabled = enabled)
-    }
-
     override suspend fun setStopAtTop(enabled: Boolean) {
         _preferencesFlow.value = _preferencesFlow.value.copy(stopAtTop = enabled)
     }
@@ -67,12 +63,12 @@ class FakePreferencesManager : PreferencesManager {
         _preferencesFlow.value = _preferencesFlow.value.copy(audioRepCountEnabled = enabled)
     }
 
-    override suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults? {
-        return exerciseDefaults["${exerciseId}_$cableConfig"]
+    override suspend fun getSingleExerciseDefaults(exerciseId: String): SingleExerciseDefaults? {
+        return exerciseDefaults[exerciseId]
     }
 
     override suspend fun saveSingleExerciseDefaults(defaults: SingleExerciseDefaults) {
-        exerciseDefaults["${defaults.exerciseId}_${defaults.cableConfig}"] = defaults
+        exerciseDefaults[defaults.exerciseId] = defaults
     }
 
     override suspend fun clearAllSingleExerciseDefaults() {
@@ -97,5 +93,15 @@ class FakePreferencesManager : PreferencesManager {
 
     override suspend fun setAutoStartCountdownSeconds(seconds: Int) {
         _preferencesFlow.value = _preferencesFlow.value.copy(autoStartCountdownSeconds = seconds)
+    }
+
+    private var simulatorModeUnlocked = false
+
+    override suspend fun setSimulatorModeUnlocked(unlocked: Boolean) {
+        simulatorModeUnlocked = unlocked
+    }
+
+    override fun isSimulatorModeUnlocked(): Boolean {
+        return simulatorModeUnlocked
     }
 }

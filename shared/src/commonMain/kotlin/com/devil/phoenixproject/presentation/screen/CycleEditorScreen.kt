@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -43,6 +42,11 @@ fun CycleEditorScreen(
     // Collect ViewModel state
     val uiState by cycleEditorViewModel.uiState.collectAsState()
 
+    // Clear topbar title to allow dynamic title from EnhancedMainScreen
+    LaunchedEffect(Unit) {
+        viewModel.updateTopBarTitle("")
+    }
+
     // Initialize ViewModel with cycle data
     LaunchedEffect(cycleId, initialDayCount) {
         cycleEditorViewModel.initialize(cycleId, initialDayCount)
@@ -57,61 +61,23 @@ fun CycleEditorScreen(
     fun saveCycle() {
         Logger.d { "CycleEditor: Preview button clicked, starting save..." }
         scope.launch {
-            try {
-                val savedId = cycleEditorViewModel.saveCycle()
-                Logger.d { "CycleEditor: saveCycle returned: $savedId" }
-                if (savedId != null) {
-                    // Pop CycleEditor from backstack so back from Preview goes to TrainingCycles
-                    Logger.d { "CycleEditor: Navigating to CycleReview with id: $savedId" }
-                    navController.navigate(NavigationRoutes.CycleReview.createRoute(savedId)) {
-                        popUpTo(NavigationRoutes.TrainingCycles.route) { inclusive = false }
-                    }
-                } else {
-                    // Re-read state after save attempt to get the error
-                    val currentState = cycleEditorViewModel.uiState.value
-                    val errorMsg = currentState.saveError ?: "Unknown error saving cycle"
-                    Logger.e { "CycleEditor: Save failed - $errorMsg" }
-                    snackbarHostState.showSnackbar("Failed to save: $errorMsg")
+            val savedId = cycleEditorViewModel.saveCycle()
+            if (savedId != null) {
+                // Pop CycleEditor from backstack so back from Preview goes to TrainingCycles
+                navController.navigate(NavigationRoutes.CycleReview.createRoute(savedId)) {
+                    popUpTo(NavigationRoutes.TrainingCycles.route) { inclusive = false }
                 }
-            } catch (e: Exception) {
-                Logger.e(e) { "CycleEditor: Exception during save" }
-                snackbarHostState.showSnackbar("Error: ${e.message}")
+            } else {
+                // Read error directly from ViewModel (composed state may not have updated yet)
+                cycleEditorViewModel.uiState.value.saveError?.let {
+                    snackbarHostState.showSnackbar("Failed to save: $it")
+                }
             }
         }
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        TextField(
-                            value = uiState.cycleName,
-                            onValueChange = { cycleEditorViewModel.updateCycleName(it) },
-                            placeholder = { Text("Cycle Name") },
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-                                unfocusedIndicatorColor = MaterialTheme.colorScheme.outline
-                            ),
-                            textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            singleLine = true
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { saveCycle() }) {
-                        Text("Preview", fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
-        },
+        contentWindowInsets = WindowInsets.navigationBars,
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { cycleEditorViewModel.showAddDaySheet(true) }
@@ -126,6 +92,27 @@ fun CycleEditorScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Editable cycle name with Preview button
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = uiState.cycleName,
+                    onValueChange = { cycleEditorViewModel.updateCycleName(it) },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Cycle Name") },
+                    textStyle = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    singleLine = true
+                )
+                Button(onClick = { saveCycle() }) {
+                    Text("Preview")
+                }
+            }
+
             // Description field
             OutlinedTextField(
                 value = uiState.description,

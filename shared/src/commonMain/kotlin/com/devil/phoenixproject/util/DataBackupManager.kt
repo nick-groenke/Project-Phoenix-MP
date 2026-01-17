@@ -43,6 +43,11 @@ interface DataBackupManager {
      * Get shareable content (JSON string) for sharing via platform share sheet
      */
     suspend fun getShareableContent(): String
+
+    /**
+     * Share backup via platform share sheet (Android Intent, iOS UIActivityViewController)
+     */
+    suspend fun shareBackup()
 }
 
 /**
@@ -63,11 +68,21 @@ abstract class BaseDataBackupManager(
 
     override suspend fun exportAllData(): BackupData = withContext(Dispatchers.IO) {
         val sessions = queries.selectAllSessionsSync().executeAsList()
-        val metrics = queries.selectAllMetricsSync().executeAsList()
+
+        // IMPORTANT: Load metrics per-session to avoid memory exhaustion on iOS.
+        // Loading all metrics at once can cause OOM crashes on iOS due to how the
+        // native SQLite driver handles large result sets.
+        val metrics = mutableListOf<com.devil.phoenixproject.database.MetricSample>()
+        for (session in sessions) {
+            val sessionMetrics = queries.selectMetricsBySession(session.id).executeAsList()
+            metrics.addAll(sessionMetrics)
+        }
+
         val routines = queries.selectAllRoutinesSync().executeAsList()
         val routineExercises = queries.selectAllRoutineExercisesSync().executeAsList()
-        val supersets = queries.selectAllSupersetsSync().executeAsList()
-        val personalRecords = queries.selectAllRecords { id, exerciseId, exerciseName, weight, reps, oneRepMax, achievedAt, workoutMode, prType, volume, updatedAt, serverId, deletedAt ->
+        // Supersets table might not exist on older databases
+        val supersets = runCatching { queries.selectAllSupersetsSync().executeAsList() }.getOrElse { emptyList() }
+        val personalRecords = queries.selectAllRecords { id, exerciseId, exerciseName, weight, reps, oneRepMax, achievedAt, workoutMode, prType, volume ->
             PersonalRecordBackup(
                 id = id,
                 exerciseId = exerciseId,
@@ -81,21 +96,24 @@ abstract class BaseDataBackupManager(
                 volume = volume.toFloat()
             )
         }.executeAsList()
-        val trainingCycles = queries.selectAllTrainingCycles().executeAsList()
+        // Training cycles tables might not exist on older databases
+        val trainingCycles = runCatching { queries.selectAllTrainingCycles().executeAsList() }.getOrElse { emptyList() }
         val cycleDays = trainingCycles.flatMap { cycle ->
-            queries.selectCycleDaysByCycle(cycle.id).executeAsList()
+            runCatching { queries.selectCycleDaysByCycle(cycle.id).executeAsList() }.getOrElse { emptyList() }
         }
 
-        // New tables for complete backup
-        val cycleProgress = queries.selectAllCycleProgressSync().executeAsList()
-        val cycleProgressions = queries.selectAllCycleProgressionsSync().executeAsList()
-        val plannedSets = queries.selectAllPlannedSetsSync().executeAsList()
-        val completedSets = queries.selectAllCompletedSetsSync().executeAsList()
-        val progressionEvents = queries.selectAllProgressionEventsSync().executeAsList()
-        val earnedBadges = queries.selectAllEarnedBadgesSync().executeAsList()
-        val streakHistory = queries.selectAllStreakHistorySync().executeAsList()
-        val gamificationStats = queries.selectGamificationStatsSync().executeAsOneOrNull()
-        val userProfiles = queries.selectAllUserProfilesSync().executeAsList()
+        // New tables for complete backup - wrapped in try-catch because these tables
+        // might not exist on older database versions. If a query fails (table missing,
+        // lock contention, etc.), we return empty list rather than crash.
+        val cycleProgress = runCatching { queries.selectAllCycleProgressSync().executeAsList() }.getOrElse { emptyList() }
+        val cycleProgressions = runCatching { queries.selectAllCycleProgressionsSync().executeAsList() }.getOrElse { emptyList() }
+        val plannedSets = runCatching { queries.selectAllPlannedSetsSync().executeAsList() }.getOrElse { emptyList() }
+        val completedSets = runCatching { queries.selectAllCompletedSetsSync().executeAsList() }.getOrElse { emptyList() }
+        val progressionEvents = runCatching { queries.selectAllProgressionEventsSync().executeAsList() }.getOrElse { emptyList() }
+        val earnedBadges = runCatching { queries.selectAllEarnedBadgesSync().executeAsList() }.getOrElse { emptyList() }
+        val streakHistory = runCatching { queries.selectAllStreakHistorySync().executeAsList() }.getOrElse { emptyList() }
+        val gamificationStats = runCatching { queries.selectGamificationStatsSync().executeAsOneOrNull() }.getOrNull()
+        val userProfiles = runCatching { queries.selectAllUserProfilesSync().executeAsList() }.getOrElse { emptyList() }
 
         BackupData(
             version = 1,

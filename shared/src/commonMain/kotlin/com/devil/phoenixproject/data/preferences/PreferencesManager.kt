@@ -16,7 +16,6 @@ import kotlinx.serialization.json.Json
 @Serializable
 data class SingleExerciseDefaults(
     val exerciseId: String,
-    val cableConfig: String,
     val setReps: List<Int?>,
     val weightPerCableKg: Float,
     val setWeightsPerCableKg: List<Float>,
@@ -29,11 +28,6 @@ data class SingleExerciseDefaults(
     val isAMRAP: Boolean,
     val perSetRestTime: Boolean
 ) {
-    fun getCableConfiguration(): com.devil.phoenixproject.domain.model.CableConfiguration {
-        return com.devil.phoenixproject.domain.model.CableConfiguration.entries.find { it.name == cableConfig }
-            ?: com.devil.phoenixproject.domain.model.CableConfiguration.DOUBLE
-    }
-
     fun getEccentricLoad(): com.devil.phoenixproject.domain.model.EccentricLoad {
         // Handle legacy 125% -> fall back to 120%
         val percentage = if (eccentricLoadPercentage == 125) 120 else eccentricLoadPercentage
@@ -104,7 +98,7 @@ interface PreferencesManager {
     val preferencesFlow: StateFlow<UserPreferences>
 
     suspend fun setWeightUnit(unit: WeightUnit)
-    suspend fun setAutoplayEnabled(enabled: Boolean)
+    // Issue #167: setAutoplayEnabled removed - autoplay now derived from summaryCountdownSeconds
     suspend fun setStopAtTop(enabled: Boolean)
     suspend fun setEnableVideoPlayback(enabled: Boolean)
     suspend fun setBeepsEnabled(enabled: Boolean)
@@ -114,8 +108,10 @@ interface PreferencesManager {
     suspend fun setAudioRepCountEnabled(enabled: Boolean)
     suspend fun setSummaryCountdownSeconds(seconds: Int)
     suspend fun setAutoStartCountdownSeconds(seconds: Int)
+    suspend fun setSimulatorModeUnlocked(unlocked: Boolean)
+    fun isSimulatorModeUnlocked(): Boolean
 
-    suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults?
+    suspend fun getSingleExerciseDefaults(exerciseId: String): SingleExerciseDefaults?
     suspend fun saveSingleExerciseDefaults(defaults: SingleExerciseDefaults)
     suspend fun clearAllSingleExerciseDefaults()
 
@@ -142,7 +138,7 @@ class SettingsPreferencesManager(
     companion object {
         // Preference keys
         private const val KEY_WEIGHT_UNIT = "weight_unit"
-        private const val KEY_AUTOPLAY_ENABLED = "autoplay_enabled"
+        // Issue #167: KEY_AUTOPLAY_ENABLED removed - autoplay now derived from summaryCountdownSeconds
         private const val KEY_STOP_AT_TOP = "stop_at_top"
         private const val KEY_VIDEO_PLAYBACK = "video_playback"
         private const val KEY_BEEPS_ENABLED = "beeps_enabled"
@@ -154,6 +150,7 @@ class SettingsPreferencesManager(
         private const val KEY_AUTOSTART_COUNTDOWN_SECONDS = "autostart_countdown_seconds"
         private const val KEY_JUST_LIFT_DEFAULTS = "just_lift_defaults"
         private const val KEY_PREFIX_EXERCISE = "exercise_defaults_"
+        private const val KEY_SIMULATOR_MODE_UNLOCKED = "simulator_mode_unlocked"
     }
 
     private val _preferencesFlow = MutableStateFlow(loadPreferences())
@@ -164,7 +161,7 @@ class SettingsPreferencesManager(
             weightUnit = settings.getStringOrNull(KEY_WEIGHT_UNIT)?.let {
                 WeightUnit.entries.find { unit -> unit.name == it }
             } ?: WeightUnit.LB,
-            autoplayEnabled = settings.getBoolean(KEY_AUTOPLAY_ENABLED, true),
+            // Issue #167: autoplayEnabled removed - now derived from summaryCountdownSeconds
             stopAtTop = settings.getBoolean(KEY_STOP_AT_TOP, false),
             enableVideoPlayback = settings.getBoolean(KEY_VIDEO_PLAYBACK, true),
             beepsEnabled = settings.getBoolean(KEY_BEEPS_ENABLED, true),
@@ -186,10 +183,7 @@ class SettingsPreferencesManager(
         updateAndEmit { copy(weightUnit = unit) }
     }
 
-    override suspend fun setAutoplayEnabled(enabled: Boolean) {
-        settings.putBoolean(KEY_AUTOPLAY_ENABLED, enabled)
-        updateAndEmit { copy(autoplayEnabled = enabled) }
-    }
+    // Issue #167: setAutoplayEnabled removed - autoplay now derived from summaryCountdownSeconds
 
     override suspend fun setStopAtTop(enabled: Boolean) {
         settings.putBoolean(KEY_STOP_AT_TOP, enabled)
@@ -235,9 +229,29 @@ class SettingsPreferencesManager(
         updateAndEmit { copy(autoStartCountdownSeconds = seconds) }
     }
 
-    override suspend fun getSingleExerciseDefaults(exerciseId: String, cableConfig: String): SingleExerciseDefaults? {
-        val key = "$KEY_PREFIX_EXERCISE${exerciseId}_$cableConfig"
-        val jsonString = settings.getStringOrNull(key) ?: return null
+    override suspend fun getSingleExerciseDefaults(exerciseId: String): SingleExerciseDefaults? {
+        val key = "$KEY_PREFIX_EXERCISE$exerciseId"
+
+        // Try new key format first
+        var jsonString = settings.getStringOrNull(key)
+
+        // Migration: If not found, try legacy key formats that included cableConfig
+        if (jsonString == null) {
+            val legacyCableConfigs = listOf("DOUBLE", "SINGLE", "EITHER")
+            for (cableConfig in legacyCableConfigs) {
+                val legacyKey = "${KEY_PREFIX_EXERCISE}${exerciseId}_$cableConfig"
+                jsonString = settings.getStringOrNull(legacyKey)
+                if (jsonString != null) {
+                    // Found with legacy key - migrate to new format
+                    settings.putString(key, jsonString)
+                    settings.remove(legacyKey)
+                    break
+                }
+            }
+        }
+
+        if (jsonString == null) return null
+
         return try {
             json.decodeFromString<SingleExerciseDefaults>(jsonString)
         } catch (e: Exception) {
@@ -246,7 +260,7 @@ class SettingsPreferencesManager(
     }
 
     override suspend fun saveSingleExerciseDefaults(defaults: SingleExerciseDefaults) {
-        val key = "$KEY_PREFIX_EXERCISE${defaults.exerciseId}_${defaults.cableConfig}"
+        val key = "$KEY_PREFIX_EXERCISE${defaults.exerciseId}"
         settings.putString(key, json.encodeToString(defaults))
     }
 
@@ -272,5 +286,13 @@ class SettingsPreferencesManager(
 
     override suspend fun clearJustLiftDefaults() {
         settings.remove(KEY_JUST_LIFT_DEFAULTS)
+    }
+
+    override suspend fun setSimulatorModeUnlocked(unlocked: Boolean) {
+        settings.putBoolean(KEY_SIMULATOR_MODE_UNLOCKED, unlocked)
+    }
+
+    override fun isSimulatorModeUnlocked(): Boolean {
+        return settings.getBoolean(KEY_SIMULATOR_MODE_UNLOCKED, false)
     }
 }

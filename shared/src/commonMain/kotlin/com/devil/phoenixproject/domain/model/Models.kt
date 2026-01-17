@@ -100,6 +100,39 @@ sealed class WorkoutState {
 }
 
 /**
+ * Routine flow state - manages the preview/setup flow before and after Active workout.
+ * This is separate from WorkoutState to cleanly handle the new routine workflow.
+ */
+sealed class RoutineFlowState {
+    /** Not in a routine flow (e.g., Just Lift, Single Exercise) */
+    data object NotInRoutine : RoutineFlowState()
+
+    /** Browsing routine exercises before starting (horizontal carousel) */
+    data class Overview(
+        val routine: Routine,
+        val selectedExerciseIndex: Int = 0
+    ) : RoutineFlowState()
+
+    /** Ready to start a specific set (focused view with adjustments) */
+    data class SetReady(
+        val exerciseIndex: Int,
+        val setIndex: Int,
+        val adjustedWeight: Float,
+        val adjustedReps: Int,
+        val echoLevel: EchoLevel? = null,
+        val eccentricLoadPercent: Int? = null
+    ) : RoutineFlowState()
+
+    /** Routine completed - celebration screen */
+    data class Complete(
+        val routineName: String,
+        val totalSets: Int,
+        val totalExercises: Int,
+        val totalDurationMs: Long
+    ) : RoutineFlowState()
+}
+
+/**
  * Program modes that use command 0x4F (96-byte frame)
  * Note: Official app uses 0x4F, NOT 0x04
  *
@@ -244,6 +277,15 @@ data class WorkoutMetric(
 }
 
 /**
+ * Movement phase during a rep - used for animated rep counter display
+ */
+enum class RepPhase {
+    IDLE,       // Between reps, not actively moving
+    CONCENTRIC, // Lifting (moving to top of ROM)
+    ECCENTRIC   // Lowering (moving to bottom of ROM)
+}
+
+/**
  * Rep count tracking
  */
 data class RepCount(
@@ -252,7 +294,10 @@ data class RepCount(
     val totalReps: Int = workingReps,  // Exclude warm-up reps from total count
     val isWarmupComplete: Boolean = false,
     val hasPendingRep: Boolean = false,  // True when at TOP (concentric peak), waiting for eccentric
-    val pendingRepProgress: Float = 0f   // 0.0 at TOP, 1.0 at BOTTOM (fill progress)
+    val pendingRepProgress: Float = 0f,  // 0.0 at TOP, 1.0 at BOTTOM (fill progress)
+    // Animation fields for Issue #163 animated rep counter
+    val activeRepPhase: RepPhase = RepPhase.IDLE,
+    val phaseProgress: Float = 0f  // 0.0 at start of phase, 1.0 at end (for animation)
 )
 
 /**
