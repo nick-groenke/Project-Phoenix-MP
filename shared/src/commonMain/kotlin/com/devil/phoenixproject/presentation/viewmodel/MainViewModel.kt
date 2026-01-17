@@ -1025,9 +1025,10 @@ class MainViewModel constructor(
             } else {
                 repCounter.reset()
             }
-            // Timed cable exercises still need warmup (ROM calibration) since cables are used
+            // Issue #196: Duration/timed exercises should NEVER have warmup reps
+            // They should immediately start the countdown timer, not wait for ROM calibration
             repCounter.configure(
-                warmupTarget = params.warmupReps,
+                warmupTarget = if (isTimedCableExercise) 0 else params.warmupReps,
                 workingTarget = params.reps,
                 isJustLift = isJustLiftMode,
                 stopAtTop = params.stopAtTop,
@@ -2974,7 +2975,7 @@ class MainViewModel constructor(
         val hasMeaningfulRange = repCounter.hasMeaningfulRange(MIN_RANGE_THRESHOLD)
         val params = _workoutParameters.value
 
-        // ===== 1. VELOCITY-BASED STALL DETECTION (Issue #204, #214, #216) =====
+        // ===== 1. VELOCITY-BASED STALL DETECTION (Issue #204, #214, #216, #198) =====
         // Only run if stallDetectionEnabled is true (user preference in Settings)
         if (params.stallDetectionEnabled) {
             // Two-tier hysteresis matching official app (<2.5 stalled, >10 moving):
@@ -2987,15 +2988,25 @@ class MainViewModel constructor(
             val isDefinitelyStalled = maxVelocity < STALL_VELOCITY_LOW
             val isDefinitelyMoving = maxVelocity > STALL_VELOCITY_HIGH
 
-            // Check if handles are actively being used (position > 10mm OR meaningful range achieved)
+            // Issue #198: Check if handles are actively being used
+            // During an active workout, we should detect stalls even when:
+            // - Position drops to ~0 (user dropped weights entirely)
+            // - No meaningful range was established (short ROM exercise)
+            // The key insight: if we're in Active state and velocity is ~0 for 5 seconds,
+            // the user has stopped regardless of position.
+            // We add "handles at rest" as an additional trigger condition to catch the case
+            // where user drops weights entirely (position ~0, no range established).
             val maxPosition = maxOf(metric.positionA, metric.positionB)
             val isActivelyUsing = maxPosition > STALL_MIN_POSITION || hasMeaningfulRange
+            val handlesAtRest = maxPosition < HANDLE_REST_THRESHOLD  // Position < 2.5mm = dropped
 
             // Hysteresis state machine:
             // - Definitely stalled (< LOW): start timer if not already running
             // - Definitely moving (> HIGH): reset timer
             // - Hysteresis band (LOW to HIGH): maintain current state, keep timer running if active
-            if (isDefinitelyStalled && isActivelyUsing && stallStartTime == null) {
+            // Issue #198: Also start timer if handles are at rest (dropped entirely) - this catches
+            // the edge case where position drops below 10mm AND no meaningful range was established
+            if (isDefinitelyStalled && (isActivelyUsing || handlesAtRest) && stallStartTime == null) {
                 // Velocity below LOW threshold - start stall timer
                 stallStartTime = currentTimeMillis()
                 isCurrentlyStalled = true
@@ -3034,10 +3045,44 @@ class MainViewModel constructor(
         }
 
         // ===== 2. POSITION-BASED DETECTION (always active) =====
-        // Only check if we have meaningful range established
+        // Issue #198: Added fallback for "handles at rest" when no meaningful range established
+        val maxPosition = maxOf(metric.positionA, metric.positionB)
+        val handlesCompletelyAtRest = maxPosition < HANDLE_REST_THRESHOLD  // Both cables < 2.5mm
+
+        // If no meaningful range established, check if handles are completely at rest
+        // This catches the edge case where user drops weights before establishing ROM
         if (!hasMeaningfulRange) {
-            resetAutoStopTimer()
-            return
+            if (handlesCompletelyAtRest) {
+                // Fallback: handles at rest with no range - start/continue timer
+                val startTime = autoStopStartTime ?: run {
+                    autoStopStartTime = currentTimeMillis()
+                    currentTimeMillis()
+                }
+
+                val elapsed = (currentTimeMillis() - startTime) / 1000f
+
+                // Only update UI if stall detection isn't already showing (stall takes priority)
+                if (!isCurrentlyStalled) {
+                    val progress = (elapsed / AUTO_STOP_DURATION_SECONDS).coerceIn(0f, 1f)
+                    val remaining = (AUTO_STOP_DURATION_SECONDS - elapsed).coerceAtLeast(0f)
+
+                    _autoStopState.value = AutoStopUiState(
+                        isActive = true,
+                        progress = progress,
+                        secondsRemaining = ceil(remaining).toInt()
+                    )
+                }
+
+                // Trigger auto-stop if timer expired
+                if (elapsed >= AUTO_STOP_DURATION_SECONDS && !autoStopTriggered) {
+                    requestAutoStop()
+                }
+                return
+            } else {
+                // No meaningful range and handles not at rest - reset and wait
+                resetAutoStopTimer()
+                return
+            }
         }
 
         val inDangerZone = repCounter.isInDangerZone(metric.positionA, metric.positionB, MIN_RANGE_THRESHOLD)
@@ -3877,6 +3922,8 @@ class MainViewModel constructor(
                 val nextSetReps = nextExercise.setReps.getOrNull(nextSetIdx)
                 val nextSetWeight = nextExercise.setWeightsPerCableKg.getOrNull(nextSetIdx)
                     ?: nextExercise.weightPerCableKg
+                // Issue #196: Duration exercises should never have warmup reps
+                val nextIsDurationBased = nextExercise.duration != null && nextExercise.duration > 0
 
                 _workoutParameters.value = _workoutParameters.value.copy(
                     weightPerCableKg = nextSetWeight,
@@ -3887,9 +3934,10 @@ class MainViewModel constructor(
                     progressionRegressionKg = nextExercise.progressionKg,
                     selectedExerciseId = nextExercise.exercise.id,
                     isAMRAP = nextSetReps == null,
-                    stallDetectionEnabled = nextExercise.stallDetectionEnabled
+                    stallDetectionEnabled = nextExercise.stallDetectionEnabled,
+                    warmupReps = if (nextIsDurationBased) 0 else _workoutParameters.value.warmupReps
                 )
-                Logger.d { "startRestTimer: Updated params for next exercise: ${nextExercise.exercise.name}, mode=${nextExercise.programMode}" }
+                Logger.d { "startRestTimer: Updated params for next exercise: ${nextExercise.exercise.name}, mode=${nextExercise.programMode}, isDuration=$nextIsDurationBased" }
             }
 
             // Calculate display values for the rest timer
@@ -4150,6 +4198,9 @@ class MainViewModel constructor(
             }
             _userAdjustedWeightDuringRest = false // Reset flag after use
 
+            // Issue #196: Duration exercises should never have warmup reps
+            val nextIsDurationBased = nextExercise.duration != null && nextExercise.duration > 0
+
             _workoutParameters.value = currentParams.copy(
                 weightPerCableKg = nextSetWeight,
                 reps = nextReps,
@@ -4159,9 +4210,10 @@ class MainViewModel constructor(
                 progressionRegressionKg = nextExercise.progressionKg,
                 selectedExerciseId = nextExercise.exercise.id,
                 isAMRAP = nextSetReps == null,
-                stallDetectionEnabled = nextExercise.stallDetectionEnabled
+                stallDetectionEnabled = nextExercise.stallDetectionEnabled,
+                warmupReps = if (nextIsDurationBased) 0 else currentParams.warmupReps
             )
-            Logger.d { "startNextSetOrExercise: Issue #164: progressionKg=${nextExercise.progressionKg}kg for ${nextExercise.exercise.displayName}" }
+            Logger.d { "startNextSetOrExercise: Issue #164: progressionKg=${nextExercise.progressionKg}kg for ${nextExercise.exercise.displayName}, isDuration=$nextIsDurationBased" }
 
             // Use full reset when changing exercises, counts-only reset for same exercise
             if (isChangingExercise) {
