@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import co.touchlab.kermit.Logger
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,7 @@ fun CycleEditorScreen(
 
     // Save function using ViewModel
     fun saveCycle() {
+        Logger.d { "CycleEditor: Preview button clicked, starting save..." }
         scope.launch {
             val savedId = cycleEditorViewModel.saveCycle()
             if (savedId != null) {

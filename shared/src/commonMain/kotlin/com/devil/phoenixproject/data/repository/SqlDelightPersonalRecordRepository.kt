@@ -27,7 +27,11 @@ class SqlDelightPersonalRecordRepository(
         achievedAt: Long,
         workoutMode: String,
         prType: String,
-        volume: Double
+        volume: Double,
+        // Sync fields (migration 6)
+        updatedAt: Long?,
+        serverId: String?,
+        deletedAt: Long?
     ): PersonalRecord {
         return PersonalRecord(
             id = id,

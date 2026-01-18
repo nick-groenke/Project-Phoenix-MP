@@ -6,6 +6,12 @@ import com.devil.phoenixproject.data.migration.MigrationManager
 import com.devil.phoenixproject.data.preferences.PreferencesManager
 import com.devil.phoenixproject.data.preferences.SettingsPreferencesManager
 import com.devil.phoenixproject.data.repository.*
+import com.devil.phoenixproject.data.sync.PortalApiClient
+import com.devil.phoenixproject.data.sync.PortalTokenStorage
+import com.devil.phoenixproject.data.sync.SyncManager
+import com.devil.phoenixproject.data.sync.SyncTriggerManager
+import com.devil.phoenixproject.ui.sync.LinkAccountViewModel
+import com.devil.phoenixproject.domain.subscription.SubscriptionManager
 import com.devil.phoenixproject.domain.usecase.ProgressionUseCase
 import com.devil.phoenixproject.domain.usecase.RepCounterFromMachine
 import com.devil.phoenixproject.domain.usecase.ResolveRoutineWeightsUseCase
@@ -43,6 +49,21 @@ val commonModule = module {
     single<CompletedSetRepository> { SqlDelightCompletedSetRepository(get()) }
     single<ProgressionRepository> { SqlDelightProgressionRepository(get()) }
 
+    // Portal Sync (must be before Auth since PortalAuthRepository depends on these)
+    single { PortalTokenStorage(get()) }
+    single {
+        PortalApiClient(
+            tokenProvider = { get<PortalTokenStorage>().getToken() }
+        )
+    }
+    single<SyncRepository> { SqlDelightSyncRepository(get()) }
+    single { SyncManager(get(), get(), get()) }
+    single { SyncTriggerManager(get(), get()) }
+
+    // Auth & Subscription (using Railway Portal backend)
+    single<AuthRepository> { PortalAuthRepository(get(), get()) }
+    single { SubscriptionManager(get()) }
+
     // Preferences
     // Settings is provided by platformModule
     single<PreferencesManager> { SettingsPreferencesManager(get()) }
@@ -57,7 +78,7 @@ val commonModule = module {
     single { MigrationManager() }
     
     // ViewModels
-    factory { MainViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
+    factory { MainViewModel(get(), get(), get(), get(), get(), get(), get(), get(), get(), get()) }
     factory { ConnectionLogsViewModel() }
     factory { CycleEditorViewModel(get()) }
     factory { GamificationViewModel(get()) }
@@ -65,4 +86,7 @@ val commonModule = module {
     single { ThemeViewModel(get()) }
     // EulaViewModel as singleton - tracks EULA acceptance across app lifecycle
     single { EulaViewModel(get()) }
+
+    // Sync UI
+    factory { LinkAccountViewModel(get()) }
 }

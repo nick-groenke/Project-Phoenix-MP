@@ -5,6 +5,7 @@ import com.devil.phoenixproject.data.preferences.PreferencesManager
 import com.devil.phoenixproject.data.repository.BleRepository
 import com.devil.phoenixproject.data.repository.KableBleRepository
 import com.devil.phoenixproject.data.repository.simulator.SimulatorBleRepository
+import com.devil.phoenixproject.util.ConnectivityChecker
 import com.devil.phoenixproject.util.CsvExporter
 import com.devil.phoenixproject.util.DataBackupManager
 import com.devil.phoenixproject.util.IosCsvExporter
@@ -32,4 +33,5 @@ actual val platformModule: Module = module {
     }
     single<CsvExporter> { IosCsvExporter() }
     single<DataBackupManager> { IosDataBackupManager(get()) }
+    single { ConnectivityChecker() }
 }

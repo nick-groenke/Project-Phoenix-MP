@@ -35,6 +35,14 @@ sealed class NavigationRoutes(val route: String) {
     object CycleReview : NavigationRoutes("cycleReview/{cycleId}") {
         fun createRoute(cycleId: String) = "cycleReview/$cycleId"
     }
+
+    // Premium/Account routes
+    object Auth : NavigationRoutes("auth")
+    object Paywall : NavigationRoutes("paywall")
+    object Account : NavigationRoutes("account")
+
+    // Cloud Sync routes
+    object LinkAccount : NavigationRoutes("link_account")
 }
 
 /**

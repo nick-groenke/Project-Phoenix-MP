@@ -241,10 +241,12 @@ class CycleEditorViewModel(
      */
     suspend fun saveCycle(): String? {
         val state = _uiState.value
+        Logger.d { "CycleEditorVM: saveCycle called, cycleId=${state.cycleId}, items=${state.items.size}" }
         _uiState.update { it.copy(isSaving = true, saveError = null) }
 
         return try {
             val cycleIdToUse = if (state.cycleId == "new") generateUUID() else state.cycleId
+            Logger.d { "CycleEditorVM: Using cycleId=$cycleIdToUse" }
 
             val days = state.items.map { item ->
                 when (item) {
@@ -274,16 +276,21 @@ class CycleEditorViewModel(
             )
 
             if (state.cycleId == "new") {
+                Logger.d { "CycleEditorVM: Saving new cycle..." }
                 repository.saveCycle(cycle)
             } else {
+                Logger.d { "CycleEditorVM: Updating existing cycle..." }
                 repository.updateCycle(cycle)
             }
+            Logger.d { "CycleEditorVM: Cycle saved successfully" }
 
             state.progression?.let { prog ->
+                Logger.d { "CycleEditorVM: Saving progression settings..." }
                 repository.saveCycleProgression(prog.copy(cycleId = cycleIdToUse))
             }
 
             _uiState.update { it.copy(isSaving = false, cycleId = cycleIdToUse) }
+            Logger.d { "CycleEditorVM: Returning cycleId=$cycleIdToUse" }
             cycleIdToUse
         } catch (e: Exception) {
             Logger.e(e) { "Failed to save training cycle" }

@@ -13,6 +13,13 @@ actual class DriverFactory(private val context: Context) {
     companion object {
         private const val TAG = "DriverFactory"
         private const val DATABASE_NAME = "vitruvian.db"
+
+        // Increment this when you make schema changes during development.
+        // This forces a database reset when the app is updated.
+        // For production, use proper SQLDelight migrations (.sqm files) instead.
+        private const val DEV_SCHEMA_VERSION = 5  // Bumped: Subscription fields on UserProfile
+        private const val PREFS_NAME = "vitruvian_db_prefs"
+        private const val KEY_SCHEMA_VERSION = "dev_schema_version"
     }
 
     actual fun createDriver(): SqlDriver {

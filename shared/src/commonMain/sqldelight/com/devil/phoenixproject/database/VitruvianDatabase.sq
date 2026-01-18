@@ -24,7 +24,11 @@ CREATE TABLE Exercise (
     lastPerformed INTEGER,
     aliases TEXT,
     defaultCableConfig TEXT NOT NULL,
-    one_rep_max_kg REAL DEFAULT NULL
+    one_rep_max_kg REAL DEFAULT NULL,
+    -- Sync fields (added in migration 6)
+    updatedAt INTEGER,
+    serverId TEXT,
+    deletedAt INTEGER
 );
 
 CREATE INDEX idx_exercise_popularity ON Exercise(popularity DESC, name ASC);
@@ -82,7 +86,11 @@ CREATE TABLE WorkoutSession (
     workingAvgWeightKg REAL,
     burnoutAvgWeightKg REAL,
     peakWeightKg REAL,
-    rpe INTEGER
+    rpe INTEGER,
+    -- Sync fields (added in migration 6)
+    updatedAt INTEGER,
+    serverId TEXT,
+    deletedAt INTEGER
 );
 
 -- Exercise metrics (samples during workout)
@@ -113,7 +121,11 @@ CREATE TABLE PersonalRecord (
     achievedAt INTEGER NOT NULL,
     workoutMode TEXT NOT NULL,
     prType TEXT NOT NULL DEFAULT 'MAX_WEIGHT',
-    volume REAL NOT NULL DEFAULT 0.0
+    volume REAL NOT NULL DEFAULT 0.0,
+    -- Sync fields (added in migration 6)
+    updatedAt INTEGER,
+    serverId TEXT,
+    deletedAt INTEGER
 );
 
 CREATE UNIQUE INDEX idx_pr_unique ON PersonalRecord(exerciseId, workoutMode, prType);
@@ -125,7 +137,11 @@ CREATE TABLE Routine (
     description TEXT NOT NULL DEFAULT '',
     createdAt INTEGER NOT NULL,
     lastUsed INTEGER,
-    useCount INTEGER NOT NULL DEFAULT 0
+    useCount INTEGER NOT NULL DEFAULT 0,
+    -- Sync fields (added in migration 6)
+    updatedAt INTEGER,
+    serverId TEXT,
+    deletedAt INTEGER
 );
 
 -- Supersets (first-class container for grouped exercises)
@@ -690,7 +706,11 @@ CREATE TABLE EarnedBadge (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     badgeId TEXT NOT NULL UNIQUE,
     earnedAt INTEGER NOT NULL,
-    celebratedAt INTEGER
+    celebratedAt INTEGER,
+    -- Sync fields (added in migration 6)
+    updatedAt INTEGER,
+    serverId TEXT,
+    deletedAt INTEGER
 );
 
 -- Streak History (for tracking historical streaks)
@@ -713,7 +733,10 @@ CREATE TABLE GamificationStats (
     prsAchieved INTEGER NOT NULL DEFAULT 0,
     lastWorkoutDate INTEGER,
     streakStartDate INTEGER,
-    lastUpdated INTEGER NOT NULL
+    lastUpdated INTEGER NOT NULL,
+    -- Sync fields (added in migration 6)
+    updatedAt INTEGER,
+    serverId TEXT
 );
 
 -- ==================== GAMIFICATION QUERIES ====================
@@ -1201,7 +1224,12 @@ CREATE TABLE UserProfile (
     name TEXT NOT NULL,
     colorIndex INTEGER NOT NULL DEFAULT 0,
     createdAt INTEGER NOT NULL,
-    isActive INTEGER NOT NULL DEFAULT 0
+    isActive INTEGER NOT NULL DEFAULT 0,
+    -- Subscription fields (added in migration 4)
+    supabase_user_id TEXT,
+    subscription_status TEXT DEFAULT 'free',
+    subscription_expires_at INTEGER,
+    last_auth_at INTEGER
 );
 
 -- Queries for UserProfile
@@ -1229,3 +1257,117 @@ DELETE FROM UserProfile WHERE id = ? AND id != 'default';
 
 countProfiles:
 SELECT COUNT(*) FROM UserProfile;
+
+-- Subscription queries
+linkProfileToSupabase:
+UPDATE UserProfile
+SET supabase_user_id = ?, last_auth_at = ?
+WHERE id = ?;
+
+updateSubscriptionStatus:
+UPDATE UserProfile
+SET subscription_status = ?, subscription_expires_at = ?
+WHERE id = ?;
+
+getProfileBySupabaseId:
+SELECT * FROM UserProfile WHERE supabase_user_id = ?;
+
+getActiveProfileSubscriptionStatus:
+SELECT subscription_status FROM UserProfile WHERE isActive = 1;
+
+-- ==================== SYNC QUERIES ====================
+
+-- Get sessions modified since last sync (for push)
+selectSessionsModifiedSince:
+SELECT * FROM WorkoutSession
+WHERE (updatedAt > ? OR updatedAt IS NULL) AND deletedAt IS NULL
+ORDER BY timestamp DESC;
+
+-- Get soft-deleted sessions (for push)
+selectDeletedSessionsSince:
+SELECT id, serverId, deletedAt FROM WorkoutSession
+WHERE deletedAt IS NOT NULL AND deletedAt > ?;
+
+-- Update session server ID after push
+updateSessionServerId:
+UPDATE WorkoutSession SET serverId = ? WHERE id = ?;
+
+-- Soft delete session
+softDeleteSession:
+UPDATE WorkoutSession SET deletedAt = ?, updatedAt = ? WHERE id = ?;
+
+-- Upsert session from sync (for pull)
+upsertSyncSession:
+INSERT OR REPLACE INTO WorkoutSession (
+    id, timestamp, mode, targetReps, weightPerCableKg, progressionKg,
+    duration, totalReps, warmupReps, workingReps,
+    isJustLift, stopAtTop, eccentricLoad, echoLevel,
+    exerciseId, exerciseName, routineSessionId, routineName,
+    safetyFlags, deloadWarningCount, romViolationCount, spotterActivations,
+    peakForceConcentricA, peakForceConcentricB, peakForceEccentricA, peakForceEccentricB,
+    avgForceConcentricA, avgForceConcentricB, avgForceEccentricA, avgForceEccentricB,
+    heaviestLiftKg, totalVolumeKg, estimatedCalories,
+    warmupAvgWeightKg, workingAvgWeightKg, burnoutAvgWeightKg, peakWeightKg, rpe,
+    updatedAt, serverId, deletedAt
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Get PRs modified since last sync
+selectPRsModifiedSince:
+SELECT * FROM PersonalRecord
+WHERE (updatedAt > ? OR updatedAt IS NULL) AND deletedAt IS NULL;
+
+-- Update PR server ID
+updatePRServerId:
+UPDATE PersonalRecord SET serverId = ? WHERE id = ?;
+
+-- Get routines modified since last sync
+selectRoutinesModifiedSince:
+SELECT * FROM Routine
+WHERE (updatedAt > ? OR updatedAt IS NULL) AND deletedAt IS NULL;
+
+-- Update routine server ID
+updateRoutineServerId:
+UPDATE Routine SET serverId = ? WHERE id = ?;
+
+-- Get custom exercises modified since last sync
+selectCustomExercisesModifiedSince:
+SELECT * FROM Exercise
+WHERE isCustom = 1 AND (updatedAt > ? OR updatedAt IS NULL) AND deletedAt IS NULL;
+
+-- Update exercise server ID
+updateExerciseServerId:
+UPDATE Exercise SET serverId = ? WHERE id = ?;
+
+-- Get badges modified since last sync
+selectBadgesModifiedSince:
+SELECT * FROM EarnedBadge
+WHERE (updatedAt > ? OR updatedAt IS NULL) AND deletedAt IS NULL;
+
+-- Update badge server ID
+updateBadgeServerId:
+UPDATE EarnedBadge SET serverId = ? WHERE id = ?;
+
+-- Get gamification stats
+selectGamificationStatsForSync:
+SELECT * FROM GamificationStats WHERE id = 1;
+
+-- Update gamification stats server ID
+updateGamificationStatsServerId:
+UPDATE GamificationStats SET serverId = ? WHERE id = 1;
+
+-- Find session by server ID (for conflict resolution)
+selectSessionByServerId:
+SELECT * FROM WorkoutSession WHERE serverId = ?;
+
+-- Find PR by server ID
+selectPRByServerId:
+SELECT * FROM PersonalRecord WHERE serverId = ?;
+
+-- Find routine by server ID
+selectRoutineByServerId:
+SELECT * FROM Routine WHERE serverId = ?;
+
+-- Mark session updatedAt on save
+updateSessionTimestamp:
+UPDATE WorkoutSession SET updatedAt = ? WHERE id = ?;

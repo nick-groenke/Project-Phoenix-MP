@@ -8,6 +8,7 @@ import com.devil.phoenixproject.data.repository.KableBleRepository
 import com.devil.phoenixproject.data.repository.simulator.SimulatorBleRepository
 import com.devil.phoenixproject.util.AndroidCsvExporter
 import com.devil.phoenixproject.util.AndroidDataBackupManager
+import com.devil.phoenixproject.util.ConnectivityChecker
 import com.devil.phoenixproject.util.CsvExporter
 import com.devil.phoenixproject.util.DataBackupManager
 import com.russhwolf.settings.SharedPreferencesSettings
@@ -33,4 +34,5 @@ actual val platformModule: Module = module {
     }
     single<CsvExporter> { AndroidCsvExporter(androidContext()) }
     single<DataBackupManager> { AndroidDataBackupManager(androidContext(), get()) }
+    single { ConnectivityChecker(androidContext()) }
 }

@@ -75,7 +75,11 @@ class SqlDelightWorkoutRepository(
         workingAvgWeightKg: Double?,
         burnoutAvgWeightKg: Double?,
         peakWeightKg: Double?,
-        rpe: Long?
+        rpe: Long?,
+        // Sync fields (migration 6)
+        updatedAt: Long?,
+        serverId: String?,
+        deletedAt: Long?
     ): WorkoutSession {
         return WorkoutSession(
             id = id,
@@ -126,7 +130,11 @@ class SqlDelightWorkoutRepository(
         description: String,
         createdAt: Long,
         lastUsed: Long?,
-        useCount: Long
+        useCount: Long,
+        // Sync fields (migration 6)
+        updatedAt: Long?,
+        serverId: String?,
+        deletedAt: Long?
     ): Routine {
         return Routine(
             id = id,
@@ -552,7 +560,7 @@ class SqlDelightWorkoutRepository(
     }
 
     override fun getAllPersonalRecords(): Flow<List<PersonalRecordEntity>> {
-        return queries.selectAllRecords { id, exerciseId, exerciseName, weight, reps, oneRepMax, achievedAt, workoutMode, prType, volume ->
+        return queries.selectAllRecords { id, exerciseId, exerciseName, weight, reps, oneRepMax, achievedAt, workoutMode, prType, volume, updatedAt, serverId, deletedAt ->
             PersonalRecordEntity(
                 id = id,
                 exerciseId = exerciseId,

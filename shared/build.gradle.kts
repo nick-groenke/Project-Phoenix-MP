@@ -100,6 +100,9 @@ kotlin {
                 // Lottie Animations (Compose Multiplatform)
                 implementation(libs.compottie)
                 implementation(libs.compottie.resources)
+
+                // RevenueCat (Premium - Subscriptions)
+                implementation(libs.revenuecat.purchases.core)
             }
         }
 
