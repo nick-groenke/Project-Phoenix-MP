@@ -508,7 +508,9 @@ class MainViewModel constructor(
                      RepType.WARMUP_COMPLETED -> _hapticEvents.emit(HapticEvent.REP_COMPLETED)
                      RepType.WARMUP_COMPLETE -> _hapticEvents.emit(HapticEvent.WARMUP_COMPLETE)
                      RepType.WORKOUT_COMPLETE -> {
-                         _hapticEvents.emit(HapticEvent.WORKOUT_COMPLETE)
+                         // Note: WORKOUT_COMPLETE sound removed - WORKOUT_END in handleSetCompletion
+                         // provides sufficient feedback, and celebration sounds (PR/badge) may also play.
+                         // Playing both was causing multiple sounds to fire at once (sound stacking bug).
                          // Issue #182: Trigger set completion immediately on WORKOUT_COMPLETE event.
                          // Previously, completion relied on a subsequent metric arriving to trigger
                          // handleSetCompletion() via shouldStopWorkout() check in handleMonitorMetric().
@@ -595,17 +597,22 @@ class MainViewModel constructor(
 
                     // Issue #204: Don't start stall timer during AMRAP startup grace period
                     // This prevents premature auto-stop when transitioning from target-rep to AMRAP exercise
+                    // Issue #209: Don't start stall timer until meaningful ROM established (warmup complete)
+                    //             This prevents premature auto-stop when user hasn't started exercising yet.
                     val hasMeaningfulRange = repCounter.hasMeaningfulRange(MIN_RANGE_THRESHOLD)
                     val inGrace = isInAmrapStartupGrace(hasMeaningfulRange)
 
                     // Start the stall timer for velocity-based auto-stop countdown
                     // This uses the 5-second STALL_DURATION_SECONDS timer
-                    if (stallStartTime == null && !inGrace) {
+                    // Issue #209: Only start if meaningful ROM established (warmup reps complete)
+                    if (stallStartTime == null && !inGrace && hasMeaningfulRange) {
                         stallStartTime = currentTimeMillis()
                         isCurrentlyStalled = true
                         Logger.d("🛑 Auto-stop stall timer STARTED via DELOAD_OCCURRED flag")
                     } else if (inGrace) {
                         Logger.d("🛑 DELOAD_OCCURRED ignored - in AMRAP startup grace period")
+                    } else if (!hasMeaningfulRange) {
+                        Logger.d("🛑 DELOAD_OCCURRED ignored - no meaningful ROM established yet (warmup incomplete)")
                     }
                 }
             }
@@ -1037,6 +1044,10 @@ class MainViewModel constructor(
             // 5. Reset State
             currentSessionId = KmpUtils.randomUUID()
             _repCount.value = RepCount()
+            // Issue #213: Reset Echo mode force telemetry to avoid showing stale data from previous set
+            // Without this reset, the weight display stays stuck at the previous set's value until
+            // new heuristic data arrives, which can take a moment after workout starts
+            _currentHeuristicKgMax.value = 0f
             // For Just Lift mode, preserve position ranges built during handle detection
             // A full reset() would wipe out hasMeaningfulRange() data needed for auto-stop
             if (isJustLiftMode) {
@@ -3048,8 +3059,11 @@ class MainViewModel constructor(
             // Issue #198: Also start timer if handles are at rest (dropped entirely) - this catches
             // the edge case where position drops below 10mm AND no meaningful range was established
             // Issue #204: Don't start stall timer during AMRAP startup grace period
+            // Issue #209: Don't start stall timer until meaningful ROM established (warmup complete)
+            //             This prevents premature auto-stop when user hasn't started exercising yet.
+            //             Stall detection only makes sense AFTER user has established their ROM.
             val inGrace = isInAmrapStartupGrace(hasMeaningfulRange)
-            if (isDefinitelyStalled && (isActivelyUsing || handlesAtRest) && stallStartTime == null && !inGrace) {
+            if (isDefinitelyStalled && (isActivelyUsing || handlesAtRest) && stallStartTime == null && !inGrace && hasMeaningfulRange) {
                 // Velocity below LOW threshold - start stall timer
                 stallStartTime = currentTimeMillis()
                 isCurrentlyStalled = true
@@ -3087,48 +3101,54 @@ class MainViewModel constructor(
             resetStallTimer()
         }
 
-        // ===== 2. POSITION-BASED DETECTION (always active) =====
-        // Issue #198: Added fallback for "handles at rest" when no meaningful range established
+        // ===== 2. POSITION-BASED DETECTION =====
+        // Issue #198: Original fallback for "handles at rest" when no meaningful range established
+        // Issue #209: Don't auto-stop during active warmup (user moving but no ROM yet)
+        // Issue #209 FIX: Still allow auto-stop if handles completely at rest (user gave up/dropped cables)
+        //             The key distinction:
+        //             - Warming up: position > 2.5mm, user moving, ROM not yet established → WAIT
+        //             - Handles at rest: position < 2.5mm, user dropped cables → CAN AUTO-STOP
         val maxPosition = maxOf(metric.positionA, metric.positionB)
         val handlesCompletelyAtRest = maxPosition < HANDLE_REST_THRESHOLD  // Both cables < 2.5mm
 
-        // If no meaningful range established, check if handles are completely at rest
-        // This catches the edge case where user drops weights before establishing ROM
-        if (!hasMeaningfulRange) {
-            // Issue #204: Check grace period for position-based fallback
-            val inGraceForPositionCheck = isInAmrapStartupGrace(hasMeaningfulRange)
-
-            if (handlesCompletelyAtRest && !inGraceForPositionCheck) {
-                // Fallback: handles at rest with no range AND past grace period - start/continue timer
-                val startTime = autoStopStartTime ?: run {
-                    autoStopStartTime = currentTimeMillis()
-                    currentTimeMillis()
-                }
-
-                val elapsed = (currentTimeMillis() - startTime) / 1000f
-
-                // Only update UI if stall detection isn't already showing (stall takes priority)
-                if (!isCurrentlyStalled) {
-                    val progress = (elapsed / AUTO_STOP_DURATION_SECONDS).coerceIn(0f, 1f)
-                    val remaining = (AUTO_STOP_DURATION_SECONDS - elapsed).coerceAtLeast(0f)
-
-                    _autoStopState.value = AutoStopUiState(
-                        isActive = true,
-                        progress = progress,
-                        secondsRemaining = ceil(remaining).toInt()
-                    )
-                }
-
-                // Trigger auto-stop if timer expired
-                if (elapsed >= AUTO_STOP_DURATION_SECONDS && !autoStopTriggered) {
-                    requestAutoStop()
-                }
-                return
-            } else {
-                // Either user is moving OR in grace period - reset and wait
-                resetAutoStopTimer()
-                return
+        // Handle the "handles at rest" case - this should auto-stop even without ROM
+        // Issue #198: User dropped cables entirely, even before establishing ROM
+        // Issue #209: BUT respect AMRAP startup grace period - don't auto-stop during first few seconds
+        val inGraceForPositionBased = isInAmrapStartupGrace(hasMeaningfulRange)
+        if (handlesCompletelyAtRest && !inGraceForPositionBased) {
+            // Handles at rest (< 2.5mm) - start/continue timer regardless of ROM
+            // This catches the case where user gives up before completing any reps
+            val startTime = autoStopStartTime ?: run {
+                autoStopStartTime = currentTimeMillis()
+                currentTimeMillis()
             }
+
+            val elapsed = (currentTimeMillis() - startTime) / 1000f
+
+            // Only update UI if stall detection isn't already showing (stall takes priority)
+            if (!isCurrentlyStalled) {
+                val progress = (elapsed / AUTO_STOP_DURATION_SECONDS).coerceIn(0f, 1f)
+                val remaining = (AUTO_STOP_DURATION_SECONDS - elapsed).coerceAtLeast(0f)
+
+                _autoStopState.value = AutoStopUiState(
+                    isActive = true,
+                    progress = progress,
+                    secondsRemaining = ceil(remaining).toInt()
+                )
+            }
+
+            // Trigger auto-stop if timer expired
+            if (elapsed >= AUTO_STOP_DURATION_SECONDS && !autoStopTriggered) {
+                requestAutoStop()
+            }
+            return
+        } else if (handlesCompletelyAtRest && inGraceForPositionBased) {
+            // Issue #209: Handles at rest during AMRAP startup grace - wait, don't auto-stop yet
+            Logger.v("AutoStop: Handles at rest but in AMRAP grace period - waiting")
+            resetAutoStopTimer()
+        } else {
+            // User is moving or not at rest - reset position-based timer
+            resetAutoStopTimer()
         }
 
         val inDangerZone = repCounter.isInDangerZone(metric.positionA, metric.positionB, MIN_RANGE_THRESHOLD)
@@ -3561,6 +3581,9 @@ class MainViewModel constructor(
 
         Logger.d("Saved workout session: $sessionId with ${metricsSnapshot.size} metrics")
 
+        // Track if a celebration sound will play (to avoid sound stacking)
+        var hasCelebrationSound = false
+
         // Check for personal record (skip for Just Lift and Echo modes)
         // Uses mode-specific PR lookup to track PRs separately per workout mode (#111)
         params.selectedExerciseId?.let { exerciseId ->
@@ -3582,6 +3605,7 @@ class MainViewModel constructor(
                     // Only celebrate if an actual PR was broken
                     result.onSuccess { brokenPRs ->
                         if (brokenPRs.isNotEmpty()) {
+                            hasCelebrationSound = true // PR dialog will play sound via callback
                             val exercise = exerciseRepository.getExerciseById(exerciseId)
                             val prTypeDescription = when {
                                 brokenPRs.contains(PRType.MAX_WEIGHT) && brokenPRs.contains(PRType.MAX_VOLUME) -> "Weight & Volume"
@@ -3614,8 +3638,14 @@ class MainViewModel constructor(
             gamificationRepository.updateStats()
             val newBadges = gamificationRepository.checkAndAwardBadges()
             if (newBadges.isNotEmpty()) {
-                // Emit single badge sound BEFORE badge list (batched celebration)
-                _hapticEvents.emit(HapticEvent.BADGE_EARNED)
+                // Only emit badge sound if no other celebration sound is playing (avoid sound stacking)
+                // PR celebration dialog plays its own sound via callback, so skip badge sound when PR earned
+                if (!hasCelebrationSound) {
+                    _hapticEvents.emit(HapticEvent.BADGE_EARNED)
+                    Logger.d("Badge sound emitted (no PR celebration)")
+                } else {
+                    Logger.d("Badge sound skipped (PR celebration will play)")
+                }
                 _badgeEarnedEvents.emit(newBadges)
                 Logger.d("New badges earned: ${newBadges.map { it.name }}")
             }
