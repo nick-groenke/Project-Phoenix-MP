@@ -113,14 +113,30 @@ fun ActiveWorkoutScreen(
     }
 
     // Handle Back Button (System + Top Bar)
+    // Issue #XXX: Different behavior for routine flow vs non-routine modes
     LaunchedEffect(Unit) {
         val onBack: () -> Unit = {
-            // Show confirmation if workout is active
-            if (viewModel.workoutState.value is WorkoutState.Active ||
-                viewModel.workoutState.value is WorkoutState.Resting ||
-                viewModel.workoutState.value is WorkoutState.Countdown
-            ) {
-                showExitConfirmation = true
+            val workoutState = viewModel.workoutState.value
+            val isRoutineFlow = viewModel.routineFlowState.value != RoutineFlowState.NotInRoutine
+
+            // Check if workout is in an active state
+            val isWorkoutActive = workoutState is WorkoutState.Active ||
+                workoutState is WorkoutState.Resting ||
+                workoutState is WorkoutState.Countdown ||
+                workoutState is WorkoutState.SetSummary
+
+            if (isWorkoutActive) {
+                if (isRoutineFlow) {
+                    // Routine flow: Stop and return to SetReady for current set
+                    // This allows user to redo the set or navigate to a different set
+                    viewModel.stopAndReturnToSetReady()
+                    navController.navigate(NavigationRoutes.SetReady.route) {
+                        popUpTo(NavigationRoutes.RoutineOverview.route) { inclusive = false }
+                    }
+                } else {
+                    // Non-routine (Just Lift, Single Exercise): Show exit confirmation dialog
+                    showExitConfirmation = true
+                }
             } else {
                 navController.navigateUp()
             }

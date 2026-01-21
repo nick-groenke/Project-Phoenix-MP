@@ -217,7 +217,7 @@ jobs:
           API_BASE="https://api.appstoreconnect.apple.com/v1"
 
           echo "=== Fetching App ID for bundle: $BUNDLE_ID ==="
-          APP_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -H "Authorization: Bearer $JWT" \
+          APP_RESPONSE=$(curl -s --globoff -w "\nHTTP_CODE:%{http_code}" -H "Authorization: Bearer $JWT" \
             "$API_BASE/apps?filter[bundleId]=$BUNDLE_ID")
           HTTP_CODE=$(echo "$APP_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
           APP_RESPONSE=$(echo "$APP_RESPONSE" | grep -v "HTTP_CODE:")
@@ -277,7 +277,7 @@ jobs:
               JWT=$(generate_jwt)
             fi
 
-            BUILDS_RESPONSE=$(curl -s -H "Authorization: Bearer $JWT" \
+            BUILDS_RESPONSE=$(curl -s --globoff -H "Authorization: Bearer $JWT" \
               "$API_BASE/builds?filter[app]=$APP_ID&filter[version]=$BUILD_VERSION&limit=1")
 
             BUILD_STATUS=$(echo "$BUILDS_RESPONSE" | python3 -c "

@@ -279,7 +279,14 @@ class SqlDelightWorkoutRepository(
     }
 
     private fun mapEccentricLoadFromDb(dbValue: Long): EccentricLoad {
-        return when (dbValue.toInt()) {
+        // Defensive clamping: Machine hardware limit is 150% eccentric load
+        // Values > 150% can cause machine faults (yellow light)
+        val safeValue = dbValue.toInt().coerceIn(0, 150)
+        if (dbValue.toInt() != safeValue) {
+            Logger.w { "DB eccentric load $dbValue% clamped to $safeValue% (hardware limit 150%)" }
+        }
+
+        return when (safeValue) {
             0 -> EccentricLoad.LOAD_0
             50 -> EccentricLoad.LOAD_50
             75 -> EccentricLoad.LOAD_75
@@ -290,8 +297,10 @@ class SqlDelightWorkoutRepository(
             140 -> EccentricLoad.LOAD_140
             150 -> EccentricLoad.LOAD_150
             else -> {
-                Logger.w { "Unknown eccentric load value: $dbValue, defaulting to 100%" }
-                EccentricLoad.LOAD_100
+                // Value is within 0-150 but not a standard enum value - find closest match
+                Logger.w { "Non-standard eccentric load value: $safeValue%, finding closest match" }
+                EccentricLoad.entries.minByOrNull { kotlin.math.abs(it.percentage - safeValue) }
+                    ?: EccentricLoad.LOAD_100
             }
         }
     }

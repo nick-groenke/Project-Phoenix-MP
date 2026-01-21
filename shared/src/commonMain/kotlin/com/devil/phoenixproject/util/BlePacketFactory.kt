@@ -228,6 +228,8 @@ object BlePacketFactory {
         // Values > 150% can cause machine faults (yellow light)
         val safeEccentricPct = eccentricPct.coerceIn(0, 150)
         if (eccentricPct != safeEccentricPct) {
+            // CRITICAL: Log with println for reliable logcat output - helps diagnose machine fault reports
+            println("BLE-FAULT-PREVENTION: ⚠️ Eccentric load $eccentricPct% CLAMPED to $safeEccentricPct% (hardware limit 150%)")
             Logger.w("BlePacketFactory") {
                 "⚠️ Eccentric load $eccentricPct% clamped to $safeEccentricPct% (hardware limit)"
             }

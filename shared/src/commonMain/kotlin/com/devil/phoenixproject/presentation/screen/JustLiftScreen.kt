@@ -161,7 +161,10 @@ fun JustLiftScreen(
     }
 
     // Update parameters whenever user changes them
-    LaunchedEffect(selectedMode, weightPerCable, weightChangePerRep, userPreferences.stallDetectionEnabled) {
+    // BUG FIX: Added eccentricLoad and echoLevel to dependencies - without these,
+    // changing eccentric load percentage (e.g., from 100% to 150%) would NOT update
+    // workoutParameters, causing the machine to receive wrong eccentric load value
+    LaunchedEffect(selectedMode, weightPerCable, weightChangePerRep, userPreferences.stallDetectionEnabled, eccentricLoad, echoLevel) {
         val weightChangeKg = if (weightUnit == WeightUnit.LB) {
             weightChangePerRep / 2.20462f
         } else {
@@ -180,6 +183,7 @@ fun JustLiftScreen(
             stallDetectionEnabled = userPreferences.stallDetectionEnabled,
             selectedExerciseId = null // Issue #97: Clear exercise ID for Just Lift sessions
         )
+        Logger.d { "JustLift: Updating params - eccentricLoad=${eccentricLoad.percentage}%, echoLevel=${newEchoLevel.displayName}" }
         viewModel.updateWorkoutParameters(updatedParameters)
     }
 

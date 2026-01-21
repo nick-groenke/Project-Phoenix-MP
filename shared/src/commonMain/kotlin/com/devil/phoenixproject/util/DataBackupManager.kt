@@ -1,5 +1,6 @@
 package com.devil.phoenixproject.util
 
+import co.touchlab.kermit.Logger
 import com.devil.phoenixproject.database.VitruvianDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -404,6 +405,12 @@ abstract class BaseDataBackupManager(
                 // Import workout sessions
                 backup.data.workoutSessions.forEach { session ->
                     if (session.id !in existingSessionIds) {
+                        // Sanitize eccentric load to prevent machine faults (hardware limit 150%)
+                        val safeEccentricLoad = session.eccentricLoad.sanitizeEccentricLoad()
+                        if (session.eccentricLoad != safeEccentricLoad) {
+                            Logger.w { "Backup import: session ${session.id} eccentricLoad ${session.eccentricLoad}% clamped to ${safeEccentricLoad}% (hardware limit)" }
+                        }
+
                         queries.insertSession(
                             id = session.id,
                             timestamp = session.timestamp,
@@ -417,7 +424,7 @@ abstract class BaseDataBackupManager(
                             workingReps = session.workingReps.toLong(),
                             isJustLift = if (session.isJustLift) 1L else 0L,
                             stopAtTop = if (session.stopAtTop) 1L else 0L,
-                            eccentricLoad = session.eccentricLoad.toLong(),
+                            eccentricLoad = safeEccentricLoad.toLong(),
                             echoLevel = session.echoLevel.toLong(),
                             exerciseId = session.exerciseId,
                             exerciseName = session.exerciseName,
@@ -519,6 +526,12 @@ abstract class BaseDataBackupManager(
                 // Import routine exercises (only for imported routines)
                 backup.data.routineExercises.forEach { exercise ->
                     if (exercise.routineId in importedRoutineIds) {
+                        // Sanitize eccentric load to prevent machine faults (hardware limit 150%)
+                        val safeExerciseEccentricLoad = exercise.eccentricLoad.sanitizeEccentricLoad()
+                        if (exercise.eccentricLoad != safeExerciseEccentricLoad) {
+                            Logger.w { "Backup import: routine exercise ${exercise.exerciseName} eccentricLoad ${exercise.eccentricLoad}% clamped to ${safeExerciseEccentricLoad}% (hardware limit)" }
+                        }
+
                         queries.insertRoutineExerciseIgnore(
                             id = exercise.id,
                             routineId = exercise.routineId,
@@ -533,7 +546,7 @@ abstract class BaseDataBackupManager(
                             weightPerCableKg = exercise.weightPerCableKg.toDouble(),
                             setWeights = exercise.setWeights,
                             mode = exercise.mode,
-                            eccentricLoad = exercise.eccentricLoad.toLong(),
+                            eccentricLoad = safeExerciseEccentricLoad.toLong(),
                             echoLevel = exercise.echoLevel.toLong(),
                             progressionKg = exercise.progressionKg.toDouble(),
                             restSeconds = exercise.restSeconds.toLong(),

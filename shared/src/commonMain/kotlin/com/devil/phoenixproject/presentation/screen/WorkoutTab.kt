@@ -263,11 +263,12 @@ fun WorkoutTab(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .navigationBarsPadding()  // Issue #XXX: Prevent content from going behind soft nav buttons
                 .padding(
                     start = if (showPositionBars) 56.dp else 20.dp,
                     end = if (showPositionBars) 56.dp else 20.dp,
                     top = 0.dp,
-                    bottom = 0.dp
+                    bottom = 8.dp  // Small additional padding for visual breathing room
                 )
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1524,7 +1525,7 @@ fun SetSummaryCard(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)  // Reduced from 12dp to fit more content
     ) {
         // Gradient header with Total Reps and Total Volume
         Card(
@@ -1543,7 +1544,7 @@ fun SetSummaryCard(
                             )
                         )
                     )
-                    .padding(20.dp)
+                    .padding(16.dp)  // Reduced from 20dp to fit more content
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1582,7 +1583,7 @@ fun SetSummaryCard(
         // Stats Grid
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)  // Reduced from 8dp to fit more content
         ) {
             // Row 1: Mode and Heaviest Lift
             Row(
@@ -1671,7 +1672,7 @@ fun SetSummaryCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(12.dp),  // Reduced from 16dp to fit more content
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1700,7 +1701,7 @@ fun SetSummaryCard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(12.dp),  // Reduced from 16dp to fit more content
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1777,7 +1778,7 @@ private fun SummaryStatCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)  // Reduced from 16dp to fit more content
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1798,7 +1799,7 @@ private fun SummaryStatCard(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))  // Reduced from 8dp to fit more content
             Row(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1842,14 +1843,14 @@ private fun SummaryForceCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)  // Reduced from 16dp to fit more content
         ) {
             Text(
                 label,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))  // Reduced from 8dp to fit more content
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)

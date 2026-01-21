@@ -781,7 +781,10 @@ class MainViewModel constructor(
             // This enables hasMeaningfulRange() to return true for auto-stop detection.
             // For standard workouts, we rely on rep-based tracking (recordTopPosition/recordBottomPosition)
             // which uses sliding window averaging for better accuracy (matches parent repo).
+            // Issue #221: Debug logging for position tracking condition
+            Logger.d { "Issue221: handleMonitorMetric Active - isJustLift=${params.isJustLift}, isAMRAP=${params.isAMRAP}, posA=${metric.positionA}, posB=${metric.positionB}" }
             if (params.isJustLift || params.isAMRAP) {
+                Logger.d { "Issue221: Calling updatePositionRangesContinuously" }
                 repCounter.updatePositionRangesContinuously(metric.positionA, metric.positionB)
             }
 
@@ -973,6 +976,8 @@ class MainViewModel constructor(
             println("Issue188: ║ Progression: ${params.progressionRegressionKg}kg per rep")
             println("Issue188: ║ isJustLift: ${params.isJustLift}")
             println("Issue188: ║ isEchoMode: ${params.isEchoMode}")
+            println("Issue188: ║ echoLevel: ${params.echoLevel.displayName}")
+            println("Issue188: ║ eccentricLoad: ${params.eccentricLoad.percentage}%")
             println("Issue188: ║ stopAtTop: ${params.stopAtTop}")
             println("Issue188: ║ stallDetection: ${params.stallDetectionEnabled}")
             println("Issue188: ╚══════════════════════════════════════════════════════════════")
@@ -1267,6 +1272,44 @@ class MainViewModel constructor(
         }
     }
 
+    /**
+     * Stop the current workout and return to SetReady for the current set.
+     * Used when user presses back during Active/Resting/Countdown states.
+     * Preserves routine context but resets workout state for a fresh start.
+     *
+     * Issue #XXX: This allows user to redo or adjust the current set without exiting the routine.
+     */
+    fun stopAndReturnToSetReady() {
+        // Cancel any running jobs
+        workoutJob?.cancel()
+        workoutJob = null
+        restTimerJob?.cancel()
+        restTimerJob = null
+        bodyweightTimerJob?.cancel()
+        bodyweightTimerJob = null
+        _timedExerciseRemainingSeconds.value = null
+
+        viewModelScope.launch {
+            // Send RESET command to machine
+            bleRepository.stopWorkout()
+
+            // Reset state for fresh start
+            repCounter.reset()  // Full reset - clear all counters and ROM ranges
+            _repCount.value = RepCount()
+            _repRanges.value = null
+            resetAutoStopState()
+            _workoutState.value = WorkoutState.Idle
+
+            // Navigate to SetReady for CURRENT set (not next)
+            val routine = _loadedRoutine.value
+            if (routine != null) {
+                enterSetReady(_currentExerciseIndex.value, _currentSetIndex.value)
+            }
+
+            Logger.d { "stopAndReturnToSetReady: Reset to SetReady for exercise=${_currentExerciseIndex.value}, set=${_currentSetIndex.value}" }
+        }
+    }
+
     fun pauseWorkout() {
         if (_workoutState.value is WorkoutState.Active) {
             // Cancel collection jobs to prevent stale data during pause
@@ -1558,8 +1601,18 @@ class MainViewModel constructor(
     fun proceedFromSummary() {
         viewModelScope.launch {
             val routine = _loadedRoutine.value
-            val isJustLift = _workoutParameters.value.isJustLift
             val autoplay = autoplayEnabled.value
+
+            // Issue #209: If we have a loaded routine, force isJustLift = false
+            // This handles the case where isJustLift was incorrectly preserved from a previous
+            // Just Lift session (due to .copy() not resetting it). Without this, the entire
+            // routine flow would be skipped and the user would see a blank screen.
+            val isJustLift = if (routine != null) {
+                _workoutParameters.value = _workoutParameters.value.copy(isJustLift = false)
+                false
+            } else {
+                _workoutParameters.value.isJustLift
+            }
 
             Logger.d { "proceedFromSummary: routine=${routine?.name ?: "NULL"}, isJustLift=$isJustLift, autoplay=$autoplay" }
             Logger.d { "  currentExerciseIndex=${_currentExerciseIndex.value}, currentSetIndex=${_currentSetIndex.value}" }
@@ -1819,7 +1872,7 @@ class MainViewModel constructor(
                 reps = setReps ?: exercise.reps,
                 weightPerCableKg = setWeight,
                 progressionRegressionKg = exercise.progressionKg,
-                warmupReps = 0,  // Routines don't track warmup reps per exercise
+                warmupReps = 3,  // Routines use default 3 warmup reps (machine expects this)
                 selectedExerciseId = exercise.exercise.id
             )
         }
@@ -2092,6 +2145,9 @@ class MainViewModel constructor(
         Logger.d { "enterSetReady: exercise=${exercise.exercise.name}, set=$setIndex, isAMRAP=$isSetAmrap, stallDetection=${exercise.stallDetectionEnabled}" }
 
         // Update workout parameters for this set
+        // Issue #209: Explicitly set isJustLift=false and useAutoStart=false
+        // These may have been set to true from a previous Just Lift session,
+        // and .copy() preserves existing values. Routines must not inherit Just Lift behavior.
         _workoutParameters.value = _workoutParameters.value.copy(
             programMode = exercise.programMode,
             weightPerCableKg = setWeight,
@@ -2101,7 +2157,9 @@ class MainViewModel constructor(
             selectedExerciseId = exercise.exercise.id,
             stallDetectionEnabled = exercise.stallDetectionEnabled,
             isAMRAP = isSetAmrap,  // Issue #129: Set per-set AMRAP flag
-            progressionRegressionKg = exercise.progressionKg  // Issue #188: Include progression from exercise
+            progressionRegressionKg = exercise.progressionKg,  // Issue #188: Include progression from exercise
+            isJustLift = false,  // Issue #209: Routines are NOT just lift mode
+            useAutoStart = false  // Issue #209: Routines don't use auto-start
         )
     }
 
@@ -2130,6 +2188,9 @@ class MainViewModel constructor(
         Logger.d { "enterSetReadyWithAdjustments: exercise=${exercise.exercise.name}, set=$setIndex, isAMRAP=$isSetAmrap, stallDetection=${exercise.stallDetectionEnabled}" }
 
         // Update workout parameters with adjusted values
+        // Issue #209: Explicitly set isJustLift=false and useAutoStart=false
+        // These may have been set to true from a previous Just Lift session,
+        // and .copy() preserves existing values. Routines must not inherit Just Lift behavior.
         _workoutParameters.value = _workoutParameters.value.copy(
             programMode = exercise.programMode,
             weightPerCableKg = adjustedWeight,
@@ -2139,7 +2200,9 @@ class MainViewModel constructor(
             selectedExerciseId = exercise.exercise.id,
             stallDetectionEnabled = exercise.stallDetectionEnabled,
             isAMRAP = isSetAmrap,  // Issue #129: Set per-set AMRAP flag
-            progressionRegressionKg = exercise.progressionKg  // Issue #188: Include progression from exercise
+            progressionRegressionKg = exercise.progressionKg,  // Issue #188: Include progression from exercise
+            isJustLift = false,  // Issue #209: Routines are NOT just lift mode
+            useAutoStart = false  // Issue #209: Routines don't use auto-start
         )
     }
 
@@ -2180,12 +2243,15 @@ class MainViewModel constructor(
 
     /**
      * Update eccentric load percentage in set-ready state for Echo mode.
+     * Values are clamped to 0-150% to prevent machine faults (hardware limit).
      */
     fun updateSetReadyEccentricLoad(percent: Int) {
+        // Defensive clamping: Machine hardware limit is 150% eccentric load
+        val safePercent = percent.coerceIn(0, 150)
         val state = _routineFlowState.value
         if (state is RoutineFlowState.SetReady) {
-            _routineFlowState.value = state.copy(eccentricLoadPercent = percent)
-            val load = EccentricLoad.entries.minByOrNull { kotlin.math.abs(it.percentage - percent) }
+            _routineFlowState.value = state.copy(eccentricLoadPercent = safePercent)
+            val load = EccentricLoad.entries.minByOrNull { kotlin.math.abs(it.percentage - safePercent) }
                 ?: EccentricLoad.LOAD_100
             _workoutParameters.value = _workoutParameters.value.copy(eccentricLoad = load)
         }
@@ -2357,10 +2423,21 @@ class MainViewModel constructor(
         val state = _routineFlowState.value
         if (state !is RoutineFlowState.SetReady) return
 
+        // Issue #XXX: Full reset before starting to ensure no stale state
+        // This is critical when user presses back during workout and returns to SetReady
+        repCounter.reset()
+        _repCount.value = RepCount()
+        _repRanges.value = null
+        resetAutoStopState()
+
         // Apply the adjusted values to workout parameters
+        // Issue #209: Explicitly set isJustLift=false as a safety net
+        // (enterSetReady/enterSetReadyWithAdjustments should have already set this,
+        // but this ensures it's reset even if called from an unexpected path)
         _workoutParameters.value = _workoutParameters.value.copy(
             weightPerCableKg = state.adjustedWeight,
-            reps = state.adjustedReps
+            reps = state.adjustedReps,
+            isJustLift = false  // Issue #209: Routines are NOT just lift mode
         )
 
         // Start the workout directly (skip countdown since user already configured on SetReady)
@@ -2982,11 +3059,14 @@ class MainViewModel constructor(
             }
 
             // Auto-start the workout in Just Lift mode
-            if (params.isJustLift) {
-                startWorkout(skipCountdown = true, isJustLiftMode = true)
-            } else {
-                startWorkout(skipCountdown = false, isJustLiftMode = false)
-            }
+            // Issue #221: Auto-start ONLY triggers when useAutoStart=true, which is exclusive to Just Lift mode
+            // Therefore, we should ALWAYS use isJustLiftMode=true here to preserve position ranges
+            // The previous check for params.isJustLift could fail due to race conditions in LaunchedEffect timing
+            Logger.d { "Issue221: Auto-start timer complete - params.isJustLift=${params.isJustLift}, params.useAutoStart=${params.useAutoStart}" }
+            // Issue #221 FIX: Use isJustLiftMode=true since auto-start only fires for Just Lift mode
+            // Also set skipCountdown=true since user has already been holding handles during countdown
+            Logger.d { "Issue221: Starting workout with isJustLiftMode=true (auto-start implies Just Lift mode)" }
+            startWorkout(skipCountdown = true, isJustLiftMode = true)
         }
     }
 
@@ -3143,8 +3223,9 @@ class MainViewModel constructor(
             }
             return
         } else if (handlesCompletelyAtRest && inGraceForPositionBased) {
-            // Issue #209: Handles at rest during AMRAP startup grace - wait, don't auto-stop yet
-            Logger.v("AutoStop: Handles at rest but in AMRAP grace period - waiting")
+            // Issue #209: Handles at rest during startup grace - wait, don't auto-stop yet
+            // Grace period applies to both AMRAP and Just Lift to allow user time to grab handles
+            Logger.v("AutoStop: Handles at rest but in startup grace period - waiting")
             resetAutoStopTimer()
         } else {
             // User is moving or not at rest - reset position-based timer
@@ -3260,22 +3341,26 @@ class MainViewModel constructor(
     }
 
     /**
-     * Issue #204: Returns true if we're in the startup grace period for AMRAP exercises.
+     * Issue #204: Returns true if we're in the startup grace period for auto-stop modes.
      * Grace period prevents auto-stop from triggering before user has time to grab handles
-     * when transitioning from a normal rep-based exercise to an AMRAP exercise.
+     * when starting an AMRAP or Just Lift workout.
      *
      * Grace ends when:
      * 1. 8 seconds have elapsed since workout start, OR
      * 2. Meaningful ROM has been established (user has started exercising)
      *
-     * Note: Only applies to AMRAP mode, not Just Lift (which has responsive auto-stop by design).
+     * Applies to both AMRAP and Just Lift modes - without this, the position-based auto-stop
+     * would trigger in ~2.5 seconds if handles aren't grabbed immediately.
      *
      * @param hasMeaningfulRange Whether meaningful ROM (> 50mm) has been established
      * @return True if in grace period and auto-stop should be suppressed
      */
     private fun isInAmrapStartupGrace(hasMeaningfulRange: Boolean): Boolean {
-        // Only AMRAP mode gets grace period (not Just Lift)
-        if (!_workoutParameters.value.isAMRAP) return false
+        // Grace period applies to AMRAP and Just Lift modes
+        // This prevents premature auto-stop before user grabs handles
+        // (Issue: Exercise was ending in ~2 seconds if handles weren't grabbed immediately)
+        val params = _workoutParameters.value
+        if (!params.isAMRAP && !params.isJustLift) return false
 
         // If meaningful range established, user has started exercising - no grace needed
         if (hasMeaningfulRange) return false

@@ -3,6 +3,12 @@ package com.devil.phoenixproject.util
 import kotlinx.serialization.Serializable
 
 /**
+ * Sanitize eccentric load values to prevent machine faults.
+ * Machine hardware limit is 150% - values above this cause yellow light faults.
+ */
+fun Int.sanitizeEccentricLoad(): Int = this.coerceIn(0, 150)
+
+/**
  * Serializable backup data classes for export/import functionality.
  * These mirror the SQLDelight table structure but use kotlinx.serialization for JSON.
  *

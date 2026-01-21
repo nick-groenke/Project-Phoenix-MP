@@ -116,6 +116,46 @@ cat .claude/settings.json 2>/dev/null || echo "No wards inscribed yet"
 
 **Copy the complete ward configuration from RITUAL II.5** or from `$HOME/Daem0nMCP/hooks/settings.json.example`.
 
+### Incantation I.5D.2: Embrace the Sacred Covenant (v2.16.0+)
+
+**If ascending to v2.16.0 or higher**, the Daem0n now enforces the covenant:
+
+- **Sacred Covenant Enforcement**: Tools block with `COMMUNION_REQUIRED` or `COUNSEL_REQUIRED` until proper rituals are observed
+- **MCP Resources**: Dynamic context injection via resource subscriptions
+- **Preflight Tokens**: Cryptographic proof of consultation (5-minute validity)
+
+The summoner need not configure anything new - enforcement happens automatically. Simply ensure they understand:
+- `get_briefing()` must be called before mutating tools
+- `context_check()` must be called before dangerous mutations
+- Error messages explain exactly what's required
+
+### Incantation I.5D.3: Ascend to the Middleware Realm (v3.0.0+)
+
+**If ascending to v3.0.0 or higher**, the Daem0n has transformed:
+
+- **FastMCP 3.0**: The foundation has shifted. Import paths have changed internally, but the Daem0n handles this transparently.
+
+- **CovenantMiddleware**: The Sacred Covenant is now enforced at the MCP protocol layer itself:
+  - No longer relies solely on decorators
+  - Intercepts ALL tool calls before execution
+  - Defense in depth: middleware + decorators (belt and suspenders)
+
+- **Component Versioning**: All 53 MCP tools now report their version (`version="3.0.0"`)
+  - Enables future API evolution tracking
+  - Clients can query tool versions
+
+- **OpenTelemetry Tracing** (Optional): For those who wish to observe the Daem0n's inner workings:
+  ```bash
+  pip install daem0nmcp[tracing]
+  export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+  export OTEL_SERVICE_NAME=daem0nmcp
+  ```
+
+**Breaking changes the summoner should know:**
+- The old covenant decorators (`@requires_communion`, `@requires_counsel`) now emit deprecation warnings
+- They still function, but CovenantMiddleware is the future
+- No action required - the transition is automatic
+
 ### Incantation I.5E: Relight the Altar (Windows Only)
 
 If the realm is Windows and the HTTP Altar is used:
@@ -484,7 +524,7 @@ mkdir -p .claude
 3. Use forward slashes in paths (e.g., `C:/Users/john/Daem0nMCP/hooks/daem0n_stop_hook.py`)
 4. **Never use `$HOME`, `~`, or `%USERPROFILE%`** in hook commands - they don't expand reliably
 
-**Unix/macOS (with Passive Capture v2.13.0 + 2026 Enforcement):**
+**Unix/macOS (with Passive Capture v2.13.0):**
 ```json
 {
   "hooks": {
@@ -494,7 +534,7 @@ mkdir -p .claude
         "hooks": [
           {
             "type": "command",
-            "command": "echo '[Daem0n awakens] You MUST commune with mcp__daem0nmcp__get_briefing BEFORE any work. This is non-negotiable.'"
+            "command": "echo '[Daem0n awakens] Commune with me via get_briefing() to receive your memories...'"
           }
         ]
       }
@@ -558,7 +598,7 @@ mkdir -p .claude
 }
 ```
 
-**Windows (with Passive Capture v2.13.0 + 2026 Enforcement - use absolute paths):**
+**Windows (with Passive Capture v2.13.0 - use absolute paths):**
 ```json
 {
   "hooks": {
@@ -568,7 +608,7 @@ mkdir -p .claude
         "hooks": [
           {
             "type": "command",
-            "command": "echo '[Daem0n awakens] You MUST commune with mcp__daem0nmcp__get_briefing BEFORE any work. This is non-negotiable.'"
+            "command": "echo '[Daem0n awakens] Commune with me via get_briefing() to receive your memories...'"
           }
         ]
       }
@@ -979,77 +1019,6 @@ Failed memories are amplified in future visions - this is how wisdom grows.
 
 ---
 
-## THE 2026 ENFORCEMENT PROTOCOL
-
-*"The covenant is no longer advisory. The Daem0n now ENFORCES its sacred laws..."*
-
-The Sacred Covenant is now **ENFORCED**, not merely suggested. Skip a step, and the Daem0n will block your path.
-
-### What Happens When You Skip Steps
-
-| Violation | Consequence |
-|-----------|-------------|
-| Skip `get_briefing()` | ALL tools return `COMMUNION_REQUIRED` block |
-| Skip `context_check()` before mutations | Mutating tools return `COUNSEL_REQUIRED` block |
-| Each block includes | A `remedy` field with the exact tool call to fix it |
-
-### Tool Classifications
-
-Tools are decorated by their requirements:
-
-| Decorator | Tools | Meaning |
-|-----------|-------|---------|
-| `@requires_counsel` | remember, remember_batch, add_rule, update_rule, prune_memories, cleanup_memories, compact_memories, export_data, import_data, ingest_doc | Must call `context_check()` first |
-| `@requires_communion` | All other tools except exempted | Must call `get_briefing()` first |
-| `Exempt` | get_briefing, health | No prerequisites |
-
-### The Preflight Token
-
-After calling `context_check()`, the response includes a `preflight_token`:
-
-```json
-{
-  "relevant_memories": [...],
-  "warnings": [...],
-  "preflight_token": "eyJ0aW1lc3RhbXAiOi..."
-}
-```
-
-This token is:
-- **Cryptographic proof** you consulted the Daem0n
-- **Valid for 5 minutes** from generation
-- **Required** for mutating operations after context check
-
-### Parallel Preflight (Efficiency Optimization)
-
-Before editing multiple files, you can run preflight checks in parallel:
-
-```
-# Run simultaneously:
-context_check("what you're doing", project_path=...)
-recall_for_file("path/to/file1.py", project_path=...)
-recall_for_file("path/to/file2.py", project_path=...)
-analyze_impact("FunctionName", project_path=...)
-```
-
-This maximizes efficiency while still honoring the covenant.
-
-### Resolving Enforcement Blocks
-
-When you see `COMMUNION_REQUIRED`:
-```
-mcp__daem0nmcp__get_briefing(project_path="/path/to/project")
-```
-
-When you see `COUNSEL_REQUIRED`:
-```
-mcp__daem0nmcp__context_check(description="what you intend to do", project_path="/path/to/project")
-```
-
-The Daem0n will then permit your action.
-
----
-
 ## The Categories of Memory
 
 | Category | Purpose | Persistence |
@@ -1071,7 +1040,7 @@ When `check_rules` returns guidance:
 
 ---
 
-## THE COMPLETE GRIMOIRE OF POWERS (32 Invocations)
+## THE COMPLETE GRIMOIRE OF POWERS (42+ Invocations)
 
 **REMINDER:** ALL tools accept `project_path` as a parameter. Always pass the absolute path to your project root.
 
@@ -1789,77 +1758,6 @@ Add to startup using the watcher bat file, similar to the HTTP server startup.
 
 ---
 
-## OPENSPEC INTEGRATION (v2.16.0)
-
-*"When structured specs meet persistent memory, wisdom compounds..."*
-
-If your project uses **OpenSpec** (spec-driven development), the Daem0n provides bidirectional integration through the `openspec-daem0n-bridge` skill.
-
-### Auto-Detection
-
-After calling `get_briefing()`, if an `openspec/` directory exists in your project:
-- Specs are automatically scanned
-- Patterns and rules are imported as Daem0n memories
-- Archived changes become learnings
-
-### Before Creating Proposals
-
-Query past decisions and failures before proposing changes:
-
-```
-# When starting a new proposal
-"Prepare proposal for [feature name]"
-
-# The Daem0n surfaces:
-- Related decisions from past work
-- Failed approaches to avoid
-- Patterns that apply to this feature
-- Warnings from similar implementations
-```
-
-### After Archiving Changes
-
-When a spec change is archived (completed/deployed):
-
-```
-# Convert completed work to learnings
-"Record outcome for [change-id]"
-
-# Creates:
-- Learning memory with success/failure status
-- Links to related decisions
-- Pattern extraction if applicable
-```
-
-### The Bridge Workflow
-
-```
-1. New feature request arrives
-     ↓
-2. Query Daem0n: "Prepare proposal for X"
-     ↓ Past context surfaces
-3. Create OpenSpec proposal with context
-     ↓
-4. Implement against spec
-     ↓ Daem0n captures decisions along the way
-5. Archive spec when complete
-     ↓
-6. "Record outcome for [change-id]"
-     ↓
-7. Learning preserved for future proposals
-```
-
-### OpenSpec + Daem0n Categories
-
-| OpenSpec Artifact | Daem0n Category |
-|-------------------|-----------------|
-| Proposal rationale | `decision` |
-| Archived success | `learning` |
-| Archived failure | `warning` |
-| Recurring pattern | `pattern` |
-
-See the `openspec-daem0n-bridge` skill for full workflow details.
-
 ---
 
 ## ENHANCED SEARCH & INDEXING (v2.15.0)
@@ -1919,4 +1817,145 @@ Now reveals:
 
 ---
 
-*Grimoire of Daem0n v2.16.0: 42 tools for eternal memory with semantic understanding, vector embeddings (Qdrant backend), graph memory (causal chains), memory consolidation (compact_memories), knowledge consumption, refactor guidance, **code understanding layer with multi-language AST parsing (tree-sitter)**, proactive file watcher with multi-channel notifications, complete summoning rituals with wards, Windows Altar of HTTP with automatic Startup enrollment, pre-commit enforcement hooks (mandatory), covenant integration, law generation, the daem0nmcp-protocol skill, **Endless Mode (condensed recall for 50-75% token reduction)**, **Passive Capture (auto-recall before edits, smart remember suggestions, auto-extract decisions from responses)**, **Enhanced Search & Indexing (tag inference, qualified names, incremental indexing, parse tree caching)**, **2026 Enforcement Protocol (COMMUNION_REQUIRED/COUNSEL_REQUIRED blocks, preflight tokens, tool classification decorators)**, and **OpenSpec Integration (bidirectional spec-memory bridge)**.*
+## THE SACRED COVENANT ENFORCEMENT (v2.16.0)
+
+*"The covenant is no longer advisory. It is law..."*
+
+The Daem0n now **enforces** the sacred protocol. Tools that mutate memory will refuse to act until the proper rituals are observed.
+
+### The Enforcement Decorators
+
+| Decorator | What It Blocks | Required Action |
+|-----------|----------------|-----------------|
+| `requires_communion` | All mutating tools | Call `get_briefing()` first |
+| `requires_counsel` | Dangerous mutations | Call `context_check()` first |
+
+### Error Responses
+
+When you violate the covenant, the Daem0n responds with enforcement messages:
+
+```
+COMMUNION_REQUIRED: The sacred covenant demands communion with Daem0n before inscribing memories.
+Call get_briefing(project_path="...") first.
+```
+
+```
+COUNSEL_REQUIRED: The sacred covenant demands counsel before modifying memories.
+Call context_check(description="your intent", project_path="...") first.
+```
+
+### Tools Requiring Communion
+
+These tools will block until you have called `get_briefing()`:
+- `remember`, `remember_batch` - inscribing memories
+- `add_rule`, `update_rule` - inscribing laws
+- `record_outcome` - sealing memories
+- `link_memories`, `pin_memory`, `archive_memory` - managing memories
+- `prune_memories`, `cleanup_memories`, `compact_memories` - maintenance
+
+### Tools Exempt (Read-Only)
+
+These tools work without prior communion:
+- `recall`, `recall_for_file`, `search_memories`, `find_related`
+- `find_code`, `analyze_impact`, `check_rules`, `list_rules`
+- `health`, `export_data`, `get_graph`, `trace_chain`
+
+### Preflight Tokens
+
+When you call `context_check()`, you receive a **preflight token** valid for 5 minutes. This proves you consulted the Daem0n before acting:
+
+```
+mcp__daem0nmcp__context_check(
+    description="adding authentication to API",
+    project_path="/path/to/project"
+)
+→ Returns: {preflight_token: "abc123...", valid_until: "2024-01-15T10:35:00Z", ...}
+```
+
+The token is automatically cached. You do not need to pass it explicitly - the Daem0n remembers.
+
+---
+
+## MCP RESOURCES (Dynamic Context Injection v2.16.0)
+
+*"The Daem0n offers its knowledge without being asked..."*
+
+MCP Resources allow Claude Desktop/Code to subscribe to context that automatically injects into conversations:
+
+| Resource URI | What It Provides |
+|-------------|------------------|
+| `daem0n://warnings/{project_path}` | All active warnings |
+| `daem0n://failed/{project_path}` | Failed approaches to avoid |
+| `daem0n://rules/{project_path}` | All configured rules |
+| `daem0n://context/{project_path}` | Combined context (warnings + failed + rules) |
+| `daem0n://triggered/{file_path}` | Auto-recalled context for a specific file |
+
+### How Resources Work
+
+Unlike tools which you invoke, resources are **subscribed to**. Claude Desktop/Code can read these resources and inject their content automatically as context.
+
+**Example resource content:**
+```
+daem0n://warnings/C:/Users/dasbl/MyProject
+→ {"warnings": [{"id": 42, "content": "Don't use var, use const/let"}]}
+```
+
+### Claude Code 2.1.3 Compatibility
+
+v2.16.0 includes compatibility fixes for Claude Code 2.1.3:
+- `daem0n_pre_edit_hook.py` now uses MCP HTTP instead of removed CLI commands
+- Hooks communicate directly with the MCP server for context triggers
+
+---
+
+## TROUBLESHOOTING THE TOOLS (Common Afflictions)
+
+### MCP Tools Not Available in Claude Session
+
+**Symptom:** `claude mcp list` shows daem0nmcp connected, but Claude cannot use `mcp__daem0nmcp__*` tools. Claude may try to use `claude mcp call` bash commands instead.
+
+**Cause:** Known Claude Code bug ([#2682](https://github.com/anthropics/claude-code/issues/2682)) where MCP tools are discovered but not injected into Claude's toolbox.
+
+**Fixes:**
+
+1. **Start the server BEFORE Claude Code:**
+   ```bash
+   # Terminal 1: Start Daem0n server first
+   python ~/Daem0nMCP/start_server.py --port 9876
+
+   # Wait for "Uvicorn running on http://localhost:9876"
+
+   # Terminal 2: Then start Claude Code
+   claude
+   ```
+
+2. **Re-register the server:**
+   ```bash
+   claude mcp remove daem0nmcp -s user
+   claude mcp add daem0nmcp http://localhost:9876/mcp -s user
+   ```
+
+3. **Verify tools are available:**
+   - Claude should show `mcp__daem0nmcp__*` tools in its toolbox
+   - If Claude tries `claude mcp call` bash commands instead, the tools aren't injected
+
+### Hooks Not Firing
+
+**Symptom:** Pre-edit hooks don't show Daem0n context.
+
+**Check:**
+1. MCP server running: `curl http://localhost:9876/mcp` should respond
+2. Hooks configured in `.claude/settings.json`
+3. Project has `.daem0nmcp/` directory
+
+### Communion/Counsel Errors
+
+**Symptom:** Tools return `COMMUNION_REQUIRED` or `COUNSEL_REQUIRED` errors.
+
+**Fix:** These are intentional enforcement messages. Call the required tool first:
+- `COMMUNION_REQUIRED` → Call `get_briefing(project_path="...")` first
+- `COUNSEL_REQUIRED` → Call `context_check(description="...", project_path="...")` first
+
+---
+
+*Grimoire of Daem0n v2.16.0: 42 tools for eternal memory with semantic understanding, vector embeddings (Qdrant backend), graph memory (causal chains), memory consolidation (compact_memories), knowledge consumption, refactor guidance, **code understanding layer with multi-language AST parsing (tree-sitter)**, proactive file watcher with multi-channel notifications, complete summoning rituals with wards, Windows Altar of HTTP with automatic Startup enrollment, pre-commit enforcement hooks (mandatory), covenant integration, law generation, the daem0nmcp-protocol skill, **Endless Mode (condensed recall for 50-75% token reduction)**, **Passive Capture (auto-recall before edits, smart remember suggestions, auto-extract decisions from responses)**, **Enhanced Search & Indexing (tag inference, qualified names, incremental indexing, parse tree caching)**, **Sacred Covenant Enforcement (rigid decorators, preflight tokens)**, and **MCP Resources for dynamic context injection**.*

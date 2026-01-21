@@ -1090,10 +1090,10 @@ actual class DriverFactory {
             // regardless of migration state. CREATE TABLE IF NOT EXISTS is idempotent.
             createTrainingCycleTablesPreMigration(preDriver)
 
-            // CRITICAL FIX (v0.3.4): After adding all columns and tables, update user_version to 11
-            // This prevents SQLDelight from running migration 10, which would try to ADD COLUMN
+            // CRITICAL FIX (Jan 2026): After adding all columns and tables, update user_version to 11
+            // This prevents SQLDelight from running migrations, which would try to ADD COLUMN
             // on columns we just added, causing "duplicate column" errors that crash on iOS.
-            // Note: Only update if current version < 11 to avoid issues with future migrations.
+            // Note: Update if current version < 11 (including version 0) to avoid migration attempts.
             var currentVersion = 0L
             try {
                 preDriver.executeQuery(
@@ -1107,7 +1107,7 @@ actual class DriverFactory {
                     },
                     0
                 )
-                if (currentVersion in 1L..10L) {
+                if (currentVersion < 11L) {
                     preDriver.execute(null, "PRAGMA user_version = 11", 0)
                     NSLog("iOS DB Pre-migration: Updated user_version from $currentVersion to 11 (skipping SQLDelight migrations)")
                 }
@@ -1487,9 +1487,10 @@ actual class DriverFactory {
     @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
     private fun purgeCorruptedDatabaseIfNeeded() {
         val defaults = NSUserDefaults.standardUserDefaults
-        // v0.3.4: Updated marker key to force re-check for users whose v0.3.3 corruption check
-        // passed but migration still failed. The v0.3.3 check was too lenient.
-        val markerKey = "phoenix_db_purge_v034_completed"
+        // Jan 2026: Updated marker key to force re-check. Previous check only caught versions 1-10,
+        // but version 0 (partial/corrupted DB) slipped through and caused migration crashes.
+        // New check catches version 0 as well.
+        val markerKey = "phoenix_db_purge_20260121_completed"
 
         // Check if we've already run the corruption check
         if (defaults.boolForKey(markerKey)) {
@@ -1676,11 +1677,12 @@ actual class DriverFactory {
             }
 
             // Version handling:
-            // - Version 0: Shouldn't happen (fresh DB has no tables), but if so, let SQLDelight create
-            // - Version 1-10: Needs migration - iOS migrations can crash, so PURGE
+            // - Version 0-10: Needs migration - iOS migrations can crash, so PURGE
+            //   Note: Version 0 CAN happen if previous schema creation failed partway through,
+            //   leaving a database file with no user_version set. This was causing crashes.
             // - Version 11+: Current or future schema, OK (SQLDelight handles forward migrations)
             val minimumVersion = 11L
-            if (schemaVersion in 1L until minimumVersion) {
+            if (schemaVersion < minimumVersion) {
                 NSLog("iOS DB: SCHEMA VERSION TOO OLD - have v$schemaVersion, need v$minimumVersion+")
                 NSLog("iOS DB: Purging to avoid migration crash (iOS migrations are not recoverable)")
                 return true

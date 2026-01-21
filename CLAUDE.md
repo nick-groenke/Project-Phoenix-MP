@@ -108,25 +108,34 @@ Located in `shared/src/commonMain/kotlin/com/example/vitruvianredux/domain/model
 - **Vitruvian Trainer+**: 220kg max
 - IMPORTANT: When applicable, prefer using jetbrains-index MCP tools for code navigation and refactoring.
 
-## The Daem0n's Covenant
+## The Daem0n's Covenant (v3.0.0 - Enforced)
 
-This project is bound to Daem0n for persistent AI memory. Observe this protocol:
+This project is bound to Daem0n for persistent AI memory. **The covenant is now ENFORCED at the protocol layer** - mutating tools will block with `COMMUNION_REQUIRED` or `COUNSEL_REQUIRED` errors until proper rituals are observed.
 
-### At Session Dawn
-- Commune with `get_briefing()` immediately when powers manifest
+### At Session Dawn (MANDATORY)
+- Commune with `get_briefing(project_path="C:/Users/dasbl/AndroidStudioProjects/Project-Phoenix-MP")` immediately
+- **This is enforced** - other tools will refuse to act until communion is complete
 - Heed any warnings or failed approaches before beginning work
 
-### Before Alterations
-- Cast `context_check("your intention")` before modifications
-- Cast `recall_for_file("path")` when touching specific files
+### Before Alterations (MANDATORY for mutations)
+- Cast `context_check("your intention", project_path="...")` before modifications
+- This grants a **preflight token** valid for 5 minutes proving consultation
+- Cast `recall_for_file("path", project_path="...")` when touching specific files
 - Acknowledge any warnings about past failures
 
 ### After Decisions
-- Cast `remember(category, content, rationale, file_path)` to inscribe decisions
+- Cast `remember(category, content, rationale, file_path, project_path="...")` to inscribe decisions
 - Use categories: decision, pattern, warning, learning
+- **Always pass project_path** on every invocation
 
 ### After Completion
-- Cast `record_outcome(memory_id, outcome, worked)` to seal the memory
+- Cast `record_outcome(memory_id, outcome, worked, project_path="...")` to seal the memory
 - ALWAYS record failures (worked=false) - they illuminate future paths
 
-See Summon_Daem0n.md for the complete Grimoire.
+### MCP Resources (Auto-Injected Context)
+The Daem0n provides subscribable resources for automatic context injection:
+- `daem0n://warnings/{project_path}` - Active warnings
+- `daem0n://failed/{project_path}` - Failed approaches to avoid
+- `daem0n://context/{project_path}` - Combined context
+
+See Summon_Daem0n.md for the complete Grimoire (53 tools available).
