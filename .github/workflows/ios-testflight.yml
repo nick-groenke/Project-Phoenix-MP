@@ -185,6 +185,51 @@ jobs:
             --apiKey "$APPSTORE_API_KEY_ID" \
             --apiIssuer "$APPSTORE_ISSUER_ID"
 
+      - name: Install Python cryptography library
+        run: pip3 install cryptography
+
+      - name: Create JWT generation script
+        run: |
+          cat > $RUNNER_TEMP/generate_jwt.py << 'EOF'
+          import base64
+          import json
+          import time
+          import os
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.asymmetric import ec
+          from cryptography.hazmat.primitives.serialization import load_pem_private_key
+          from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+          def base64url_encode(data):
+              if isinstance(data, str):
+                  data = data.encode('utf-8')
+              return base64.urlsafe_b64encode(data).rstrip(b'=').decode('utf-8')
+
+          key_id = os.environ['APPSTORE_API_KEY_ID']
+          issuer_id = os.environ['APPSTORE_ISSUER_ID']
+          key_path = os.path.expanduser(f'~/.appstoreconnect/private_keys/AuthKey_{key_id}.p8')
+
+          with open(key_path, 'rb') as f:
+              private_key = load_pem_private_key(f.read(), password=None)
+
+          header = {"alg": "ES256", "kid": key_id, "typ": "JWT"}
+          now = int(time.time())
+          payload = {"iss": issuer_id, "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"}
+
+          header_b64 = base64url_encode(json.dumps(header, separators=(',', ':')))
+          payload_b64 = base64url_encode(json.dumps(payload, separators=(',', ':')))
+          message = f"{header_b64}.{payload_b64}"
+
+          signature = private_key.sign(message.encode('utf-8'), ec.ECDSA(hashes.SHA256()))
+          r, s = decode_dss_signature(signature)
+          signature_bytes = r.to_bytes(32, 'big') + s.to_bytes(32, 'big')
+          signature_b64 = base64url_encode(signature_bytes)
+
+          print(f"{message}.{signature_b64}")
+          EOF
+          # Remove leading whitespace from Python file
+          sed -i '' 's/^          //' $RUNNER_TEMP/generate_jwt.py
+
       - name: Add build to TestFlight test group
         env:
           APPSTORE_API_KEY: ${{ secrets.APPSTORE_API_KEY }}
@@ -194,16 +239,9 @@ jobs:
         run: |
           set -e
 
-          # Generate JWT for App Store Connect API
+          # Function to generate JWT using Python script
           generate_jwt() {
-            local header=$(echo -n '{"alg":"ES256","kid":"'"$APPSTORE_API_KEY_ID"'","typ":"JWT"}' | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-            local now=$(date +%s)
-            local exp=$((now + 1200))
-            local payload=$(echo -n '{"iss":"'"$APPSTORE_ISSUER_ID"'","iat":'"$now"',"exp":'"$exp"',"aud":"appstoreconnect-v1"}' | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-            local unsigned="$header.$payload"
-            local key_file=~/.appstoreconnect/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8
-            local signature=$(echo -n "$unsigned" | openssl dgst -sha256 -sign "$key_file" | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-            echo "$unsigned.$signature"
+            python3 $RUNNER_TEMP/generate_jwt.py
           }
 
           echo "=== Generating JWT for App Store Connect API ==="
