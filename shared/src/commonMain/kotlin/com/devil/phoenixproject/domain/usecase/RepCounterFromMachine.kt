@@ -359,62 +359,43 @@ class RepCounterFromMachine {
             if (upDelta > 0) {
                 recordTopPosition(posA, posB)
 
-                // Warmup is complete when: no warmup configured (warmupTarget=0) OR warmup reps done (repsRomCount >= warmupTarget)
-                val warmupComplete = warmupTarget == 0 || repsRomCount >= warmupTarget
+                // stopAtTop: Count and complete final rep at TOP
+                // Check if one rep away from target - we'll count this rep at TOP instead of waiting for bottom
+                if (stopAtTop && !isJustLift && !isAMRAP &&
+                    workingTarget > 0 && workingReps == workingTarget - 1) {
 
-                if (stopAtTop && warmupComplete) {
-                    // stopAtTop=true: Rep is CONFIRMED at TOP (no pending state)
-                    // Use up - warmupTarget since machine releases weight at TOP
-                    val calculatedWorking = maxOf(0, up - warmupTarget)
-                    if (calculatedWorking > workingReps) {
-                        // Emit WARMUP_COMPLETE for warmupTarget=0 case
-                        if (warmupTarget == 0 && workingReps == 0 && calculatedWorking > 0) {
-                            logDebug("🎯 Warmup complete (stopAtTop) - no warmup configured, starting working reps")
-                            onRepEvent?.invoke(
-                                RepEvent(
-                                    type = RepType.WARMUP_COMPLETE,
-                                    warmupCount = 0,
-                                    workingCount = 0
-                                )
-                            )
-                        }
+                    // Count the final rep at TOP (instead of waiting for bottom)
+                    workingReps = workingTarget
+                    hasPendingRep = false
+                    activePhase = RepPhase.IDLE
+                    phaseProgress = 0f
 
-                        workingReps = calculatedWorking
-                        hasPendingRep = false
-                        activePhase = RepPhase.IDLE
-                        phaseProgress = 0f
+                    logDebug("💪 WORKING_COMPLETED (stopAtTop): rep $workingReps confirmed at TOP")
 
-                        logDebug("💪 WORKING_COMPLETED (stopAtTop): rep $workingReps confirmed at TOP (up=$up - warmupTarget=$warmupTarget)")
-
-                        onRepEvent?.invoke(
-                            RepEvent(
-                                type = RepType.WORKING_COMPLETED,
-                                warmupCount = warmupReps,
-                                workingCount = workingReps
-                            )
+                    onRepEvent?.invoke(
+                        RepEvent(
+                            type = RepType.WORKING_COMPLETED,
+                            warmupCount = warmupReps,
+                            workingCount = workingReps
                         )
+                    )
 
-                        // Check if target reached (unless AMRAP or Just Lift)
-                        if (!isJustLift && !isAMRAP && workingTarget > 0 && workingReps >= workingTarget) {
-                            logDebug("⚠️ shouldStop set to TRUE (stopAtTop target reached)")
-                            logDebug("  workingTarget=$workingTarget, workingReps=$workingReps")
-                            shouldStop = true
-                            onRepEvent?.invoke(
-                                RepEvent(
-                                    type = RepType.WORKOUT_COMPLETE,
-                                    warmupCount = warmupReps,
-                                    workingCount = workingReps
-                                )
-                            )
-                        }
-                    }
-                } else if (!stopAtTop && warmupComplete && !hasPendingRep) {
-                    // stopAtTop=false: Show PENDING (grey) at TOP, confirm at BOTTOM
-                    // Use warmupTarget (constant) instead of repsRomCount (live counter) for stability
-                    val calculatedWorking = maxOf(0, down - warmupTarget)
+                    // Now complete the workout
+                    logDebug("⚠️ stopAtTop: Target reached at TOP, completing workout")
+                    shouldStop = true
+                    onRepEvent?.invoke(
+                        RepEvent(
+                            type = RepType.WORKOUT_COMPLETE,
+                            warmupCount = warmupReps,
+                            workingCount = workingReps
+                        )
+                    )
+                }
+                // Visual pending state for non-stopAtTop (show grey rep at top)
+                else if (!stopAtTop && warmupReps >= warmupTarget && !hasPendingRep) {
                     hasPendingRep = true
                     pendingRepProgress = 0f
-                    logDebug("📈 TOP - WORKING_PENDING: showing grey rep ${calculatedWorking + 1}")
+                    logDebug("📈 TOP - WORKING_PENDING: showing grey rep ${workingReps + 1}")
 
                     onRepEvent?.invoke(
                         RepEvent(
@@ -441,11 +422,12 @@ class RepCounterFromMachine {
         lastCompleteCounter = down
 
         // WARMUP TRACKING: Use repsRomCount directly from machine
-        if (repsRomCount > warmupReps) {
+        // Cap at warmupTarget to prevent overshooting (matches parent repo)
+        if (repsRomCount > warmupReps && warmupReps < warmupTarget) {
             val oldWarmup = warmupReps
-            warmupReps = repsRomCount
+            warmupReps = repsRomCount.coerceAtMost(warmupTarget)
 
-            logDebug("🔥 Warmup: $oldWarmup -> $warmupReps (from repsRomCount)")
+            logDebug("🔥 Warmup: $oldWarmup -> $warmupReps (from repsRomCount, capped at $warmupTarget)")
 
             onRepEvent?.invoke(
                 RepEvent(
@@ -468,69 +450,54 @@ class RepCounterFromMachine {
             }
         }
 
-        // WORKING REP TRACKING (stopAtTop=false only - stopAtTop=true handled above)
-        // Issue #187 fix: Use warmupTarget (constant) instead of repsRomCount (live counter)
-        // This matches official app formula: working = down - repsRomTotal
-        if (!stopAtTop) {
-            // Primary formula: down - warmupTarget (using constant target for stability)
-            val calculatedWorking = maxOf(0, down - warmupTarget)
-
-            // Safety net: Also check machine's repsSetCount (Issue #187)
-            // The machine knows the correct rep count even if we miss the final notification
-            // Only use this fallback after warmup is complete (repsRomCount >= warmupTarget)
-            val machineWorking = if (repsRomCount >= warmupTarget) repsSetCount else 0
-
-            // Use the higher of calculated or machine-reported (catches final rep if down doesn't increment)
-            val effectiveWorking = maxOf(calculatedWorking, machineWorking)
-
-            if (effectiveWorking > workingReps) {
-                // Emit WARMUP_COMPLETE for warmupTarget=0 case (no warmup configured)
-                if (warmupTarget == 0 && workingReps == 0 && effectiveWorking > 0) {
-                    logDebug("🎯 Warmup complete - no warmup configured, starting working reps")
-                    onRepEvent?.invoke(
-                        RepEvent(
-                            type = RepType.WARMUP_COMPLETE,
-                            warmupCount = 0,
-                            workingCount = 0
-                        )
-                    )
-                }
-
-                val usedMachineFallback = machineWorking > calculatedWorking
-                workingReps = effectiveWorking
-
-                // Clear pending state when rep is confirmed
-                hasPendingRep = false
-                activePhase = RepPhase.IDLE
-                phaseProgress = 0f
-
-                if (usedMachineFallback) {
-                    logDebug("💪 WORKING_COMPLETED: rep $workingReps from machine repsSetCount (fallback)")
-                } else {
-                    logDebug("💪 WORKING_COMPLETED: rep $workingReps confirmed (down=$down - warmupTarget=$warmupTarget)")
-                }
-
+        // WORKING REP TRACKING: Trust the machine's repsSetCount unconditionally
+        // The machine handles warmup/working distinction internally.
+        // repsSetCount increments for WORKING reps only - no need to gate on warmup detection.
+        // This matches parent repo approach and avoids sync issues caused by gating on repsRomCount.
+        if (repsSetCount > workingReps) {
+            // If machine reports working reps before warmup complete in our tracking,
+            // force our warmup to match (machine knows best)
+            if (warmupReps < warmupTarget) {
+                logDebug("Machine reports working reps (repsSetCount=$repsSetCount) - warmup must be complete")
+                warmupReps = warmupTarget
                 onRepEvent?.invoke(
                     RepEvent(
-                        type = RepType.WORKING_COMPLETED,
+                        type = RepType.WARMUP_COMPLETE,
                         warmupCount = warmupReps,
                         workingCount = workingReps
                     )
                 )
+            }
 
-                // Check if target reached (unless AMRAP or Just Lift)
-                if (!isJustLift && !isAMRAP && workingTarget > 0 && workingReps >= workingTarget) {
-                    logDebug("⚠️ shouldStop set to TRUE (target reached)")
-                    logDebug("  workingTarget=$workingTarget, workingReps=$workingReps")
-                    shouldStop = true
-                    onRepEvent?.invoke(
-                        RepEvent(
-                            type = RepType.WORKOUT_COMPLETE,
-                            warmupCount = warmupReps,
-                            workingCount = workingReps
-                        )
+            workingReps = repsSetCount
+
+            // Clear pending state when rep is confirmed
+            hasPendingRep = false
+            activePhase = RepPhase.IDLE
+            phaseProgress = 0f
+
+            logDebug("💪 WORKING_COMPLETED: rep $workingReps (repsSetCount)")
+
+            onRepEvent?.invoke(
+                RepEvent(
+                    type = RepType.WORKING_COMPLETED,
+                    warmupCount = warmupReps,
+                    workingCount = workingReps
+                )
+            )
+
+            // Check if target reached (unless AMRAP or Just Lift or stopAtTop which handles completion at TOP)
+            if (!stopAtTop && !isJustLift && !isAMRAP && workingTarget > 0 && workingReps >= workingTarget) {
+                logDebug("⚠️ shouldStop set to TRUE (target reached)")
+                logDebug("  workingTarget=$workingTarget, workingReps=$workingReps")
+                shouldStop = true
+                onRepEvent?.invoke(
+                    RepEvent(
+                        type = RepType.WORKOUT_COMPLETE,
+                        warmupCount = warmupReps,
+                        workingCount = workingReps
                     )
-                }
+                )
             }
         }
     }
