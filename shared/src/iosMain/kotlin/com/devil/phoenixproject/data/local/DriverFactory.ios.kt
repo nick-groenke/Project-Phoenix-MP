@@ -1048,6 +1048,7 @@ actual class DriverFactory {
      * against an EMPTY database, causing crashes. For fresh installs, we MUST let
      * SQLDelight create the schema properly - skip pre-migration fixes entirely.
      */
+    @OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
     private fun preMigrationColumnFixes() {
         // CRITICAL: Check if database exists BEFORE trying to open it
         // For fresh installs, we must let SQLDelight create the schema from scratch
