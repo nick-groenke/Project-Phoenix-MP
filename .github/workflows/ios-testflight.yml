@@ -185,8 +185,13 @@ jobs:
             --apiKey "$APPSTORE_API_KEY_ID" \
             --apiIssuer "$APPSTORE_ISSUER_ID"
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install Python cryptography library
-        run: pip3 install cryptography
+        run: pip install cryptography
 
       - name: Create JWT generation script
         run: |
