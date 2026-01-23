@@ -499,6 +499,39 @@ jobs:
             # Don't fail - build was uploaded successfully
           fi
 
+          # Submit for Beta App Review (required for external TestFlight groups)
+          echo "=== Submitting build for Beta App Review ==="
+          REVIEW_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer $JWT" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "data": {
+                "type": "betaAppReviewSubmissions",
+                "relationships": {
+                  "build": {
+                    "data": {
+                      "type": "builds",
+                      "id": "'"$BUILD_ID"'"
+                    }
+                  }
+                }
+              }
+            }' \
+            "$API_BASE/betaAppReviewSubmissions")
+
+          REVIEW_HTTP_CODE=$(echo "$REVIEW_RESPONSE" | tail -1)
+          REVIEW_BODY=$(echo "$REVIEW_RESPONSE" | sed '$d')
+
+          if [ "$REVIEW_HTTP_CODE" = "201" ] || [ "$REVIEW_HTTP_CODE" = "200" ]; then
+            echo "SUCCESS: Build submitted for Beta App Review"
+          elif [ "$REVIEW_HTTP_CODE" = "409" ]; then
+            echo "INFO: Build already submitted for review or review not required (internal group)"
+          else
+            echo "WARNING: Failed to submit for Beta App Review (HTTP $REVIEW_HTTP_CODE)"
+            echo "$REVIEW_BODY"
+            # Don't fail - may be an internal-only group that doesn't require review
+          fi
+
       - name: Tag build for release notes tracking
         run: |
           BUILD_VERSION="${{ steps.build_number.outputs.build_number }}"
