@@ -7,15 +7,23 @@ import coil3.request.crossfade
 import coil3.util.DebugLogger
 import androidx.compose.ui.window.ComposeUIViewController
 import com.devil.phoenixproject.presentation.components.RequireBlePermissions
+import platform.Foundation.NSLog
 
 /**
  * Creates the main UIViewController for iOS that hosts the Compose Multiplatform UI.
  * This is called from Swift via: MainViewControllerKt.MainViewController()
  */
-fun MainViewController() = ComposeUIViewController {
-    ensureImageLoader()
-    RequireBlePermissions {
-        App()
+fun MainViewController() = run {
+    NSLog("iOS UI: MainViewController() called - creating ComposeUIViewController...")
+    ComposeUIViewController {
+        NSLog("iOS UI: ComposeUIViewController content block executing...")
+        NSLog("iOS UI: Setting up image loader...")
+        ensureImageLoader()
+        NSLog("iOS UI: Image loader ready, loading App()...")
+        RequireBlePermissions {
+            NSLog("iOS UI: BLE permissions checked, rendering App()...")
+            App()
+        }
     }
 }
 

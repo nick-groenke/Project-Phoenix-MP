@@ -46,11 +46,24 @@ private fun AppLifecycleObserver(syncTriggerManager: SyncTriggerManager) {
 
 @Composable
 fun App() {
+    co.touchlab.kermit.Logger.i { "iOS App: App() composable starting..." }
+
+    co.touchlab.kermit.Logger.i { "iOS App: Creating MainViewModel..." }
     val viewModel = koinViewModel<MainViewModel>()
+    co.touchlab.kermit.Logger.i { "iOS App: MainViewModel created" }
+
+    co.touchlab.kermit.Logger.i { "iOS App: Creating ThemeViewModel..." }
     val themeViewModel = koinViewModel<ThemeViewModel>()
+    co.touchlab.kermit.Logger.i { "iOS App: ThemeViewModel created" }
+
+    co.touchlab.kermit.Logger.i { "iOS App: Creating EulaViewModel..." }
     val eulaViewModel = koinViewModel<EulaViewModel>()
+    co.touchlab.kermit.Logger.i { "iOS App: EulaViewModel created" }
+
+    co.touchlab.kermit.Logger.i { "iOS App: Injecting repositories..." }
     val exerciseRepository = koinInject<ExerciseRepository>()
     val syncTriggerManager = koinInject<SyncTriggerManager>()
+    co.touchlab.kermit.Logger.i { "iOS App: All dependencies injected successfully" }
 
     // Theme state - persisted via ThemeViewModel
     val themeMode by themeViewModel.themeMode.collectAsState()

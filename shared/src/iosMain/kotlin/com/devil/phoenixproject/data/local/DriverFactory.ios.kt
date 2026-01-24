@@ -71,61 +71,92 @@ actual class DriverFactory {
      * Creates the SQLite driver with 4-layer defense.
      */
     actual fun createDriver(): SqlDriver {
-        NSLog("iOS DB: Starting database initialization (4-layer defense)...")
+        NSLog("iOS DB: ========== DATABASE INITIALIZATION START ==========")
+        NSLog("iOS DB: Target schema version: $CURRENT_SCHEMA_VERSION")
 
-        // LAYER 2: Always check health - NO MARKERS
-        val health = checkDatabaseHealth()
-        NSLog("iOS DB: Health check result: $health")
-
-        when (health) {
-            DatabaseHealth.MISSING -> {
-                NSLog("iOS DB: Fresh install - will create new database at version $CURRENT_SCHEMA_VERSION")
-            }
-            DatabaseHealth.HEALTHY -> {
-                NSLog("iOS DB: Database healthy - preserving user data")
-            }
-            DatabaseHealth.OUTDATED, DatabaseHealth.CORRUPTED -> {
-                NSLog("iOS DB: Database not healthy ($health) - purging to prevent migration crash")
-                deleteAllDatabaseFiles()
-            }
-        }
-
-        // LAYER 1: Use no-op schema - SQLDelight NEVER runs migrations
-        // CRITICAL: Must override create/upgrade callbacks to empty lambdas
-        // Even though noOpSchema has empty implementations, NativeSqliteDriver's internal
-        // DatabaseConfiguration callbacks may not properly use our noOpSchema due to
-        // Kotlin/Native object capture issues. Explicitly overriding ensures no migrations run.
-        val driver = NativeSqliteDriver(
-            schema = noOpSchema,
-            name = "vitruvian.db",
-            onConfiguration = { config ->
-                config.copy(
-                    create = { _ -> },  // Override to prevent schema.create() from being called
-                    upgrade = { _, _, _ -> },  // Override to prevent schema.migrate() from being called
-                    extendedConfig = DatabaseConfiguration.Extended(
-                        foreignKeyConstraints = false  // Disable during schema setup
-                    )
-                )
-            }
-        )
-
-        // LAYER 4: Manual schema management
-        ensureSchemaComplete(driver)
-
-        // LAYER 3: Exclude from iCloud backup
-        excludeDatabaseFromBackup()
-
-        // Enable foreign keys and WAL for normal operation
         try {
-            driver.execute(null, "PRAGMA foreign_keys = ON", 0)
-            driver.execute(null, "PRAGMA journal_mode = WAL", 0)
-            NSLog("iOS DB: Foreign keys and WAL enabled")
-        } catch (e: Exception) {
-            NSLog("iOS DB: Warning - could not enable pragmas: ${e.message}")
-        }
+            // LAYER 2: Always check health - NO MARKERS
+            NSLog("iOS DB: [STEP 1/6] Checking database health...")
+            val health = checkDatabaseHealth()
+            NSLog("iOS DB: [STEP 1/6] Health check result: $health")
 
-        NSLog("iOS DB: Initialization complete - 4-layer defense active")
-        return driver
+            when (health) {
+                DatabaseHealth.MISSING -> {
+                    NSLog("iOS DB: Fresh install - will create new database")
+                }
+                DatabaseHealth.HEALTHY -> {
+                    NSLog("iOS DB: Database healthy - preserving user data")
+                }
+                DatabaseHealth.OUTDATED, DatabaseHealth.CORRUPTED -> {
+                    NSLog("iOS DB: Database not healthy ($health) - purging...")
+                    deleteAllDatabaseFiles()
+                    NSLog("iOS DB: Purge complete")
+                }
+            }
+
+            // LAYER 1: Use no-op schema - SQLDelight NEVER runs migrations
+            NSLog("iOS DB: [STEP 2/6] Creating NativeSqliteDriver...")
+            val driver: SqlDriver
+            try {
+                driver = NativeSqliteDriver(
+                    schema = noOpSchema,
+                    name = "vitruvian.db",
+                    onConfiguration = { config ->
+                        config.copy(
+                            create = { _ -> },  // Override to prevent schema.create() from being called
+                            upgrade = { _, _, _ -> },  // Override to prevent schema.migrate() from being called
+                            extendedConfig = DatabaseConfiguration.Extended(
+                                foreignKeyConstraints = false  // Disable during schema setup
+                            )
+                        )
+                    }
+                )
+                NSLog("iOS DB: [STEP 2/6] NativeSqliteDriver created successfully")
+            } catch (e: Exception) {
+                NSLog("iOS DB: [STEP 2/6] FATAL - NativeSqliteDriver creation failed: ${e::class.simpleName}")
+                NSLog("iOS DB: [STEP 2/6] Error message: ${e.message}")
+                NSLog("iOS DB: [STEP 2/6] Stack trace: ${e.stackTraceToString().take(500)}")
+                throw e
+            }
+
+            // LAYER 4: Manual schema management
+            NSLog("iOS DB: [STEP 3/6] Ensuring schema complete...")
+            try {
+                ensureSchemaComplete(driver)
+                NSLog("iOS DB: [STEP 3/6] Schema complete")
+            } catch (e: Exception) {
+                NSLog("iOS DB: [STEP 3/6] FATAL - Schema creation failed: ${e::class.simpleName}")
+                NSLog("iOS DB: [STEP 3/6] Error message: ${e.message}")
+                NSLog("iOS DB: [STEP 3/6] Stack trace: ${e.stackTraceToString().take(500)}")
+                throw e
+            }
+
+            // LAYER 3: Exclude from iCloud backup
+            NSLog("iOS DB: [STEP 4/6] Excluding from iCloud backup...")
+            excludeDatabaseFromBackup()
+            NSLog("iOS DB: [STEP 4/6] Backup exclusion complete")
+
+            // Enable foreign keys and WAL for normal operation
+            NSLog("iOS DB: [STEP 5/6] Enabling pragmas...")
+            try {
+                driver.execute(null, "PRAGMA foreign_keys = ON", 0)
+                driver.execute(null, "PRAGMA journal_mode = WAL", 0)
+                NSLog("iOS DB: [STEP 5/6] Pragmas enabled (foreign_keys, WAL)")
+            } catch (e: Exception) {
+                NSLog("iOS DB: [STEP 5/6] Warning - could not enable pragmas: ${e.message}")
+            }
+
+            NSLog("iOS DB: [STEP 6/6] Initialization complete")
+            NSLog("iOS DB: ========== DATABASE INITIALIZATION SUCCESS ==========")
+            return driver
+
+        } catch (e: Exception) {
+            NSLog("iOS DB: ========== DATABASE INITIALIZATION FAILED ==========")
+            NSLog("iOS DB: FATAL Exception: ${e::class.simpleName}")
+            NSLog("iOS DB: Message: ${e.message}")
+            NSLog("iOS DB: Stack: ${e.stackTraceToString().take(1000)}")
+            throw e
+        }
     }
 
     // ==================== LAYER 1: No-Op Schema ====================
