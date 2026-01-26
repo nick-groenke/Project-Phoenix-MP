@@ -1116,7 +1116,9 @@ class KableBleRepository : BleRepository {
     private suspend fun tryReadFirmwareVersion(p: Peripheral) {
         try {
             val data = withTimeoutOrNull(2000L) {
-                p.read(firmwareRevisionCharacteristic)
+                bleOperationMutex.withLock {
+                    p.read(firmwareRevisionCharacteristic)
+                }
             }
             if (data != null && data.isNotEmpty()) {
                 detectedFirmwareVersion = data.decodeToString().trim()
@@ -1142,7 +1144,9 @@ class KableBleRepository : BleRepository {
     private suspend fun tryReadVitruvianVersion(p: Peripheral) {
         try {
             val data = withTimeoutOrNull(2000L) {
-                p.read(versionCharacteristic)
+                bleOperationMutex.withLock {
+                    p.read(versionCharacteristic)
+                }
             }
             if (data != null && data.isNotEmpty()) {
                 val hexString = data.joinToString(" ") { it.toHexString() }
@@ -1167,7 +1171,9 @@ class KableBleRepository : BleRepository {
             while (_connectionState.value is ConnectionState.Connected && isActive) {
                 try {
                     val data = withTimeoutOrNull(HEARTBEAT_READ_TIMEOUT_MS) {
-                        p.read(diagnosticCharacteristic)
+                        bleOperationMutex.withLock {
+                            p.read(diagnosticCharacteristic)
+                        }
                     }
 
                     if (data != null) {
@@ -1215,7 +1221,9 @@ class KableBleRepository : BleRepository {
             while (_connectionState.value is ConnectionState.Connected && isActive) {
                 try {
                     val data = withTimeoutOrNull(HEARTBEAT_READ_TIMEOUT_MS) {
-                        p.read(heuristicCharacteristic)
+                        bleOperationMutex.withLock {
+                            p.read(heuristicCharacteristic)
+                        }
                     }
 
                     if (data != null && data.isNotEmpty()) {
@@ -1397,7 +1405,9 @@ class KableBleRepository : BleRepository {
                         // BLE stack can sometimes fail to return success/failure callback
                         // This matches parent repo's withTimeoutOrNull pattern
                         val data = withTimeoutOrNull(HEARTBEAT_READ_TIMEOUT_MS) {
-                            p.read(monitorCharacteristic)
+                            bleOperationMutex.withLock {
+                                p.read(monitorCharacteristic)
+                            }
                         }
 
                         if (data != null) {
@@ -1525,7 +1535,9 @@ class KableBleRepository : BleRepository {
                     log.d { "Command hex: $commandHex" }
                 }
 
-                p.write(txCharacteristic, command, WriteType.WithResponse)
+                bleOperationMutex.withLock {
+                    p.write(txCharacteristic, command, WriteType.WithResponse)
+                }
                 log.i { "✅ Command sent via NUS TX: ${command.size} bytes" }
 
                 logRepo.debug(
