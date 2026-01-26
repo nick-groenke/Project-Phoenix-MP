@@ -333,6 +333,39 @@ class KableBleRepository : BleRepository {
     // Polling mutex to prevent race conditions (Task 4)
     private val monitorPollingMutex = Mutex()
 
+    // Issue #222: Global BLE operation mutex to serialize ALL reads/writes
+    // Prevents interleaving that causes fault 16384 command rejection
+    private val bleOperationMutex = Mutex()
+
+    /**
+     * Issue #222: Serialized BLE read operation.
+     * All BLE reads go through this to prevent interleaving with writes.
+     */
+    private suspend fun <T> serializedRead(
+        characteristic: com.juul.kable.Characteristic,
+        p: Peripheral,
+        operation: suspend () -> T
+    ): T {
+        return bleOperationMutex.withLock {
+            operation()
+        }
+    }
+
+    /**
+     * Issue #222: Serialized BLE write operation.
+     * All BLE writes go through this to prevent interleaving with reads.
+     */
+    private suspend fun serializedWrite(
+        p: Peripheral,
+        characteristic: com.juul.kable.Characteristic,
+        data: ByteArray,
+        writeType: WriteType
+    ) {
+        bleOperationMutex.withLock {
+            p.write(characteristic, data, writeType)
+        }
+    }
+
     // Diagnostic polling job (500ms keep-alive)
     private var diagnosticPollingJob: kotlinx.coroutines.Job? = null
 
@@ -943,7 +976,9 @@ class KableBleRepository : BleRepository {
      */
     private suspend fun performHeartbeatRead(p: Peripheral): Boolean {
         return try {
-            p.read(monitorCharacteristic)
+            bleOperationMutex.withLock {
+                p.read(monitorCharacteristic)
+            }
             log.v { "Heartbeat read succeeded (monitor char)" }
             true
         } catch (e: Exception) {
@@ -959,7 +994,9 @@ class KableBleRepository : BleRepository {
      */
     private suspend fun sendHeartbeatNoOp(p: Peripheral) {
         try {
-            p.write(txCharacteristic, HEARTBEAT_NO_OP, WriteType.WithResponse)
+            bleOperationMutex.withLock {
+                p.write(txCharacteristic, HEARTBEAT_NO_OP, WriteType.WithResponse)
+            }
             log.v { "Heartbeat no-op write sent" }
         } catch (e: Exception) {
             log.w { "Heartbeat no-op write failed: ${e.message}" }
