@@ -64,11 +64,13 @@ fun WorkoutHud(
     loadBaselineA: Float = 0f, // Load baseline for cable A (base tension to subtract)
     loadBaselineB: Float = 0f, // Load baseline for cable B (base tension to subtract)
     timedExerciseRemainingSeconds: Int? = null, // Issue #192: Countdown for timed exercises
+    isCurrentExerciseBodyweight: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Determine if we're in Echo mode
     val isEchoMode = workoutParameters.isEchoMode
     val pagerState = rememberPagerState(pageCount = { 3 })
+    val topBarModeLabel = if (isCurrentExerciseBodyweight) "Bodyweight" else workoutParameters.programMode.displayName
 
     // Determine gradient for background based on phase?
     // For now, keep it simple dark/light surface
@@ -77,7 +79,7 @@ fun WorkoutHud(
         topBar = {
             HudTopBar(
                 connectionState = connectionState,
-                workoutMode = workoutParameters.programMode.displayName,
+                workoutMode = topBarModeLabel,
                 onStopWorkout = onStopWorkout
             )
         },
@@ -90,7 +92,8 @@ fun WorkoutHud(
                 onNextExercise = onStartNextExercise,
                 // Issue #125: Never show Next button during Active state - exercise navigation
                 // should only be allowed when the machine is not engaged. Official app behavior.
-                showNextButton = false
+                showNextButton = false,
+                isCurrentExerciseBodyweight = isCurrentExerciseBodyweight
             )
         },
         containerColor = MaterialTheme.colorScheme.surface
@@ -125,7 +128,8 @@ fun WorkoutHud(
                             exerciseName = exerciseName,
                             currentSetIndex = currentSetIndex,
                             totalSets = totalSets,
-                            timedExerciseRemainingSeconds = timedExerciseRemainingSeconds
+                            timedExerciseRemainingSeconds = timedExerciseRemainingSeconds,
+                            isCurrentExerciseBodyweight = isCurrentExerciseBodyweight
                         )
                     }
                     1 -> InstructionPage(
@@ -137,7 +141,8 @@ fun WorkoutHud(
                     2 -> StatsPage(
                         metric = metric,
                         weightUnit = weightUnit,
-                        formatWeight = formatWeight
+                        formatWeight = formatWeight,
+                        isCurrentExerciseBodyweight = isCurrentExerciseBodyweight
                     )
                 }
             }
@@ -169,7 +174,7 @@ fun WorkoutHud(
             // PERIPHERAL VISION BARS (Pinned to edges, overlaying the pager)
             // Only show bars for cables that have built meaningful range of motion
             // Issue #194: Add 6-second delay before hiding inactive cables to prevent flickering
-            if (metric != null) {
+            if (metric != null && !isCurrentExerciseBodyweight) {
                 // Calculate danger zone status for both cables
                 val isDangerA = repRanges?.isInDangerZone(metric.positionA, metric.positionB) ?: false
                 val isDangerB = isDangerA  // Same check applies to both (symmetric)
@@ -312,7 +317,8 @@ private fun HudBottomBar(
     weightUnit: WeightUnit,
     onUpdateParameters: (WorkoutParameters) -> Unit,
     onNextExercise: () -> Unit,
-    showNextButton: Boolean
+    showNextButton: Boolean,
+    isCurrentExerciseBodyweight: Boolean
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -329,16 +335,29 @@ private fun HudBottomBar(
         ) {
             // Weight Controls - Echo mode shows "Adaptive" since weight is dynamic
             Column {
-                Text(
-                    "Weight / Cable",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    if (workoutParameters.isEchoMode) "Adaptive" else formatWeight(workoutParameters.weightPerCableKg, weightUnit),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
+                if (isCurrentExerciseBodyweight) {
+                    Text(
+                        "Bodyweight",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "No machine load",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Text(
+                        "Weight / Cable",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (workoutParameters.isEchoMode) "Adaptive" else formatWeight(workoutParameters.weightPerCableKg, weightUnit),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // Next Exercise Button (if applicable)
@@ -368,7 +387,8 @@ private fun ExecutionPage(
     exerciseName: String? = null, // Current exercise name (null for Just Lift)
     currentSetIndex: Int = 0, // Current set (0-based)
     totalSets: Int = 0, // Total number of sets for current exercise
-    timedExerciseRemainingSeconds: Int? = null // Issue #192: Countdown for timed exercises
+    timedExerciseRemainingSeconds: Int? = null, // Issue #192: Countdown for timed exercises
+    isCurrentExerciseBodyweight: Boolean = false
 ) {
     // Issue #192: Check if this is a timed exercise
     val isTimedExercise = timedExerciseRemainingSeconds != null
@@ -408,7 +428,25 @@ private fun ExecutionPage(
         }
 
         // Issue #192: Show countdown timer for timed exercises, rep counter for normal exercises
-        if (isTimedExercise && timedExerciseRemainingSeconds != null) {
+        if (isCurrentExerciseBodyweight) {
+            Text(
+                "TIME",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 2.sp
+            )
+
+            val remainingSeconds = timedExerciseRemainingSeconds
+            Text(
+                text = remainingSeconds?.let { "${it}s" } ?: "—",
+                style = MaterialTheme.typography.displayLarge.copy(fontSize = 120.sp),
+                fontWeight = FontWeight.Black,
+                color = if ((remainingSeconds ?: Int.MAX_VALUE) <= 5)
+                    MaterialTheme.colorScheme.error
+                else
+                    MaterialTheme.colorScheme.primary
+            )
+        } else if (isTimedExercise && timedExerciseRemainingSeconds != null) {
             // Timed exercise - show countdown timer
             val remainingSeconds = timedExerciseRemainingSeconds // Smart cast to non-null
             Text(
@@ -427,6 +465,38 @@ private fun ExecutionPage(
                     MaterialTheme.colorScheme.error // Highlight last 5 seconds
                 else
                     MaterialTheme.colorScheme.primary
+            )
+
+            // Timed cable exercises still count reps; show a secondary rep counter.
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val repLabel = if (repCount.isWarmupComplete) "REPS" else "WARMUP"
+            Text(
+                repLabel,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 2.sp
+            )
+
+            val repText = if (repCount.isWarmupComplete) {
+                if (!workoutParameters.isJustLift && !workoutParameters.isAMRAP && workoutParameters.reps > 0) {
+                    "${repCount.workingReps} / ${workoutParameters.reps}"
+                } else {
+                    "${repCount.workingReps}"
+                }
+            } else {
+                if (workoutParameters.warmupReps > 0) {
+                    "${repCount.warmupReps} / ${workoutParameters.warmupReps}"
+                } else {
+                    "${repCount.warmupReps}"
+                }
+            }
+
+            Text(
+                text = repText,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
         } else {
             // Normal exercise - show rep counter
@@ -479,7 +549,7 @@ private fun ExecutionPage(
         Spacer(modifier = Modifier.height(32.dp))
 
         // Circular Force Gauge
-        if (metric != null) {
+        if (metric != null && !isCurrentExerciseBodyweight) {
             // Current Load - show per-cable resistance
             // Always use max(loadA, loadB) to show peak force (matches official app)
             // For Echo mode: use heuristic kgMax (actual measured force)
@@ -512,6 +582,11 @@ private fun ExecutionPage(
                 label = forceLabel,
                 subLabel = "PER CABLE",
                 modifier = Modifier.size(hudSize)
+            )
+        } else if (isCurrentExerciseBodyweight) {
+            Text(
+                "Bodyweight exercise",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
             Text("Waiting for data...", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -637,8 +712,31 @@ private fun InstructionPage(
 private fun StatsPage(
     metric: WorkoutMetric?,
     weightUnit: WeightUnit,
-    formatWeight: (Float, WeightUnit) -> String
+    formatWeight: (Float, WeightUnit) -> String,
+    isCurrentExerciseBodyweight: Boolean = false
 ) {
+    if (isCurrentExerciseBodyweight) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Text(
+                    "No machine metrics for bodyweight",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
     if (metric == null) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(

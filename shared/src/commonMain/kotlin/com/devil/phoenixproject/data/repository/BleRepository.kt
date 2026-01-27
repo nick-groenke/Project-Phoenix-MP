@@ -224,6 +224,23 @@ interface BleRepository {
      */
     fun stopPolling()
 
+    /**
+     * Stop only monitor and heuristic polling, keeping diagnostic polling and heartbeat running.
+     * Use this during bodyweight exercises to keep BLE connection "warm" (via diagnostic polling
+     * at 500ms intervals) while not emitting workout metrics.
+     *
+     * Issue #222: The 2-second heartbeat alone is insufficient for extended bodyweight exercises
+     * (90+ seconds). Diagnostic polling must remain active to prevent BLE link degradation.
+     */
+    fun stopMonitorPollingOnly()
+
+    /**
+     * Restart diagnostic polling and heartbeat only (not monitor polling).
+     * Issue #222 v10: Use after bodyweight set completion to maintain BLE link during rest.
+     * stopWorkout() kills all polling, leaving machine with no BLE activity during rest.
+     */
+    fun restartDiagnosticPolling()
+
     // ========== Disco Mode (Easter Egg) ==========
 
     /**

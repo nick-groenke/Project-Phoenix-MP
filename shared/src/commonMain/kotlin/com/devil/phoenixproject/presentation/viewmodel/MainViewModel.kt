@@ -20,6 +20,7 @@ import com.devil.phoenixproject.data.sync.SyncTriggerManager
 import com.devil.phoenixproject.domain.usecase.ResolveRoutineWeightsUseCase
 import com.devil.phoenixproject.util.BlePacketFactory
 import com.devil.phoenixproject.util.KmpLocalDate
+import com.devil.phoenixproject.util.Constants
 import com.devil.phoenixproject.util.KmpUtils
 import com.devil.phoenixproject.util.format
 import kotlinx.coroutines.Job
@@ -447,12 +448,20 @@ class MainViewModel constructor(
     private var autoStartJob: Job? = null
     private var restTimerJob: Job? = null
     private var bodyweightTimerJob: Job? = null
+
+    // Issue #222 diagnostic: Track bodyweight sets completed in this routine
+    private var bodyweightSetsCompletedInRoutine: Int = 0
+    // Issue #222 v8: Track if previous exercise was bodyweight (for StopPacket on transition)
+    private var previousExerciseWasBodyweight: Boolean = false
     private var repEventsCollectionJob: Job? = null
     private var workoutJob: Job? = null
     // Flag to skip countdown - checked in countdown loop
     private var skipCountdownRequested: Boolean = false
-    // Track if current workout is duration-based (timed exercise) to skip ROM calibration and rep processing
+    // Track if current workout is duration-based (timed exercise) to show countdown timer
     private var isCurrentWorkoutTimed: Boolean = false
+    // Track if current exercise is bodyweight to skip rep processing (no cable engagement)
+    private val _isCurrentExerciseBodyweight = MutableStateFlow(false)
+    val isCurrentExerciseBodyweight: StateFlow<Boolean> = _isCurrentExerciseBodyweight.asStateFlow()
     
     // Idempotency tracking for handle detection (iOS autostart race condition fix)
     // Prevents duplicate enableHandleDetection() calls from resetting state machine mid-grab
@@ -713,8 +722,8 @@ class MainViewModel constructor(
      * incorrect ROM calibration and potential crashes (Issue #41).
      */
     private fun handleRepNotification(notification: RepNotification) {
-        // Skip rep processing for timed exercises - they use duration, not rep counting
-        if (isCurrentWorkoutTimed) {
+        // Skip rep processing for bodyweight exercises - they use duration, not rep counting
+        if (_isCurrentExerciseBodyweight.value) {
             return
         }
 
@@ -909,11 +918,23 @@ class MainViewModel constructor(
             // Track if this is a timed cable exercise (not bodyweight, but has duration)
             val isTimedCableExercise = !isBodyweight && exerciseDuration != null
             isCurrentWorkoutTimed = exerciseDuration != null
+            _isCurrentExerciseBodyweight.value = isBodyweight
 
-            // For bodyweight exercises with duration, skip machine commands
-            if (isBodyweight && bodyweightDuration != null) {
-                // Bodyweight duration-based exercise (e.g., plank, wall sit)
-                Logger.d("Starting bodyweight exercise: ${currentExercise?.exercise?.name} for ${bodyweightDuration}s")
+            // Issue #222: For ALL bodyweight exercises, skip machine commands
+            // Bodyweight exercises don't use the cables, so no BLE commands should be sent.
+            // ExerciseConfigViewModel forces duration mode for bodyweight, but handle edge cases
+            // (legacy data, imports) by defaulting to 30s if no duration set.
+            if (isBodyweight) {
+                // Bodyweight exercise (e.g., push-ups, planks) - machine stays idle
+                val effectiveDuration = bodyweightDuration ?: 30  // Default 30s for legacy data
+                Logger.d("Starting bodyweight exercise: ${currentExercise?.exercise?.name} for ${effectiveDuration}s (bodyweightDuration=${bodyweightDuration})")
+
+                // Issue #222 v6: Match parent repo exactly - DON'T change polling during bodyweight.
+                // Parent repo (VitruvianRedux) does NOT call any polling functions when bodyweight starts.
+                // It leaves all polling running from the initial connection.
+                // At the END of bodyweight, parent calls stopWorkout() which sends RESET and stops polling.
+                // This is the key difference from our previous attempts.
+                Logger.d("MainViewModel") { "Issue #222 v6: Bodyweight start - keeping existing polling state (matching parent repo)" }
 
                 // Issue #151: Reset and configure repCounter for bodyweight exercises
                 // This ensures no stale state from previous cable exercises affects this exercise
@@ -950,10 +971,11 @@ class MainViewModel constructor(
 
                 // Bodyweight timer - auto-complete after duration with countdown display
                 // Issue #192: Show countdown timer in UI during timed exercises
+                // Issue #222: Use effectiveDuration which handles null bodyweightDuration
                 bodyweightTimerJob?.cancel()
                 bodyweightTimerJob = viewModelScope.launch {
-                    _timedExerciseRemainingSeconds.value = bodyweightDuration
-                    for (remaining in bodyweightDuration downTo 1) {
+                    _timedExerciseRemainingSeconds.value = effectiveDuration
+                    for (remaining in effectiveDuration downTo 1) {
                         _timedExerciseRemainingSeconds.value = remaining
                         delay(1000L)
                     }
@@ -965,42 +987,69 @@ class MainViewModel constructor(
             }
 
             // Normal cable-based exercise
+            // Issue #222 v15: Removed special bodyweight→cable transition handling.
+            // Parent repo has no special handling - stopWorkout() is always called at completion
+            // which properly resets machine state before next exercise.
+            if (previousExerciseWasBodyweight) {
+                previousExerciseWasBodyweight = false
+            }
+
+            val effectiveWarmupReps = Constants.DEFAULT_WARMUP_REPS
+            val effectiveParams = if (params.warmupReps != effectiveWarmupReps) {
+                Logger.d("MainViewModel") { "Issue #222: Forcing warmupReps=$effectiveWarmupReps for cable exercise (was ${params.warmupReps})" }
+                val updated = params.copy(warmupReps = effectiveWarmupReps)
+                _workoutParameters.value = updated
+                updated
+            } else {
+                params
+            }
+
+            // Issue #222 diagnostic: Log state when starting cable exercise
+            println("Issue222: ╔══════════════════════════════════════════════════════════════")
+            println("Issue222: ║ CABLE WORKOUT STARTING - DIAGNOSTIC STATE")
+            println("Issue222: ╠══════════════════════════════════════════════════════════════")
+            println("Issue222: ║ Bodyweight sets completed this routine: $bodyweightSetsCompletedInRoutine")
+            println("Issue222: ║ Current exercise index: ${_currentExerciseIndex.value}")
+            println("Issue222: ║ Current set index: ${_currentSetIndex.value}")
+            println("Issue222: ║ isEchoMode: ${effectiveParams.isEchoMode}")
+            println("Issue222: ║ programMode: ${effectiveParams.programMode}")
+            println("Issue222: ╚══════════════════════════════════════════════════════════════")
 
             // Issue #188: Comprehensive workout parameters dump for debugging
             println("Issue188: ╔══════════════════════════════════════════════════════════════")
             println("Issue188: ║ PRE-BLE WORKOUT PARAMETERS")
             println("Issue188: ╠══════════════════════════════════════════════════════════════")
-            println("Issue188: ║ Mode: ${params.programMode.displayName}")
-            println("Issue188: ║ Weight: ${params.weightPerCableKg}kg per cable")
-            println("Issue188: ║ Reps: ${params.reps} (isAMRAP=${params.isAMRAP})")
+            println("Issue188: ║ Mode: ${effectiveParams.programMode.displayName}")
+            println("Issue188: ║ Weight: ${effectiveParams.weightPerCableKg}kg per cable")
+            println("Issue188: ║ Reps: ${effectiveParams.reps} (isAMRAP=${effectiveParams.isAMRAP})")
             // Issue #203: Debug logging to track AMRAP flag through set transitions
-            Logger.d { "Issue203 DEBUG: Starting workout - setReps=${currentExercise?.setReps}, currentSetIndex=${_currentSetIndex.value}, isAMRAP=${params.isAMRAP}" }
-            println("Issue188: ║ Warmup: ${params.warmupReps}")
-            println("Issue188: ║ Progression: ${params.progressionRegressionKg}kg per rep")
-            println("Issue188: ║ isJustLift: ${params.isJustLift}")
-            println("Issue188: ║ isEchoMode: ${params.isEchoMode}")
-            println("Issue188: ║ echoLevel: ${params.echoLevel.displayName}")
-            println("Issue188: ║ eccentricLoad: ${params.eccentricLoad.percentage}%")
-            println("Issue188: ║ stopAtTop: ${params.stopAtTop}")
-            println("Issue188: ║ stallDetection: ${params.stallDetectionEnabled}")
+            Logger.d { "Issue203 DEBUG: Starting workout - setReps=${currentExercise?.setReps}, currentSetIndex=${_currentSetIndex.value}, isAMRAP=${effectiveParams.isAMRAP}" }
+            println("Issue188: ║ Warmup: ${effectiveParams.warmupReps}")
+            println("Issue188: ║ Progression: ${effectiveParams.progressionRegressionKg}kg per rep")
+            println("Issue188: ║ isJustLift: ${effectiveParams.isJustLift}")
+            println("Issue188: ║ isEchoMode: ${effectiveParams.isEchoMode}")
+            println("Issue188: ║ echoLevel: ${effectiveParams.echoLevel.displayName}")
+            println("Issue188: ║ eccentricLoad: ${effectiveParams.eccentricLoad.percentage}%")
+            println("Issue188: ║ stopAtTop: ${effectiveParams.stopAtTop}")
+            println("Issue188: ║ stallDetection: ${effectiveParams.stallDetectionEnabled}")
             println("Issue188: ╚══════════════════════════════════════════════════════════════")
 
             // 1. Build Command - Use full 96-byte PROGRAM params (matches parent repo)
-            val command = if (params.isEchoMode) {
+            val command = if (effectiveParams.isEchoMode) {
                 // 32-byte Echo control frame
                 BlePacketFactory.createEchoControl(
-                    level = params.echoLevel,
-                    warmupReps = params.warmupReps,
-                    targetReps = params.reps,
-                    isJustLift = isJustLiftMode || params.isJustLift,
-                    isAMRAP = params.isAMRAP,
-                    eccentricPct = params.eccentricLoad.percentage
+                    level = effectiveParams.echoLevel,
+                    warmupReps = effectiveParams.warmupReps,
+                    targetReps = effectiveParams.reps,
+                    isJustLift = isJustLiftMode || effectiveParams.isJustLift,
+                    isAMRAP = effectiveParams.isAMRAP,
+                    eccentricPct = effectiveParams.eccentricLoad.percentage
                 )
             } else {
                 // Full 96-byte program frame with mode profile, weight, progression
-                BlePacketFactory.createProgramParams(params)
+                BlePacketFactory.createProgramParams(effectiveParams)
             }
-            Logger.d { "Built ${command.size}-byte workout command for ${params.programMode}" }
+            Logger.d { "Built ${command.size}-byte workout command for ${effectiveParams.programMode}" }
 
             // Issue #222: REMOVED INIT command (0x0A) before workout start.
             // Per parent repo BleRepositoryImpl.kt: USE_INIT_RESET_BEFORE_START = false
@@ -1013,7 +1062,7 @@ class MainViewModel constructor(
             // This sets the workout parameters but does NOT engage the motors
             try {
                 bleRepository.sendWorkoutCommand(command)
-                Logger.i { "CONFIG command sent (0x04): ${command.size} bytes for ${params.programMode}" }
+                Logger.i { "CONFIG command sent (0x04): ${command.size} bytes for ${effectiveParams.programMode}" }
                 // Log first 16 bytes for debugging
                 val preview = command.take(16).joinToString(" ") { it.toUByte().toString(16).padStart(2, '0').uppercase() }
                 Logger.d { "Config preview: $preview ..." }
@@ -1023,23 +1072,34 @@ class MainViewModel constructor(
                 return@launch
             }
 
-            // Issue #110: Add delay between commands to prevent BLE congestion
-            delay(50)
+            // Issue #222: Only send START command (0x03) for Program modes, NOT for Echo mode.
+            // The parent repo's BleRepositoryImpl.startWorkout() sends ONLY the Echo frame (0x4E)
+            // for Echo mode - no separate START command. The Echo frame is self-contained and
+            // activates immediately. Sending an unexpected START command after Echo mode causes
+            // the machine to fault (yellow lights) because it's already in active state.
+            // For Program modes (0x04/0x4F), START is needed to engage the motors after CONFIG.
+            if (!effectiveParams.isEchoMode) {
+                // Issue #110/#222: Add delay between commands to prevent BLE congestion
+                // and give machine time to process CONFIG before receiving START.
+                delay(200)
 
-            // 3. Send START Command (0x03) - ENABLES THE MOTORS!
-            // Per parent repo protocol analysis: Config (0x04) sets params, START (0x03) engages
-            try {
-                val startCommand = BlePacketFactory.createStartCommand()
-                bleRepository.sendWorkoutCommand(startCommand)
-                Logger.i { "START command sent (0x03) - motors should engage" }
-
-                // Start active workout polling
-                bleRepository.startActiveWorkoutPolling()
-            } catch (e: Exception) {
-                Logger.e(e) { "Failed to send START command" }
-                _connectionError.value = "Failed to start workout: ${e.message}"
-                return@launch
+                try {
+                    val startCommand = BlePacketFactory.createStartCommand()
+                    bleRepository.sendWorkoutCommand(startCommand)
+                    Logger.i { "START command sent (0x03) - motors should engage" }
+                } catch (e: Exception) {
+                    Logger.e(e) { "Failed to send START command" }
+                    _connectionError.value = "Failed to start workout: ${e.message}"
+                    return@launch
+                }
+            } else {
+                Logger.i { "Echo mode: Skipping START command (Echo frame 0x4E is self-activating)" }
+                // Brief delay for machine to process Echo frame
+                delay(100)
             }
+
+            // Start active workout polling (always needed for both modes)
+            bleRepository.startActiveWorkoutPolling()
 
             // 4. Reset State
             currentSessionId = KmpUtils.randomUUID()
@@ -1055,14 +1115,13 @@ class MainViewModel constructor(
             } else {
                 repCounter.reset()
             }
-            // Issue #196: Duration/timed exercises should NEVER have warmup reps
-            // They should immediately start the countdown timer, not wait for ROM calibration
+            // Only bodyweight exercises should have warmup reps = 0
             repCounter.configure(
-                warmupTarget = if (isTimedCableExercise) 0 else params.warmupReps,
-                workingTarget = params.reps,
+                warmupTarget = effectiveParams.warmupReps,
+                workingTarget = effectiveParams.reps,
                 isJustLift = isJustLiftMode,
-                stopAtTop = params.stopAtTop,
-                isAMRAP = params.isAMRAP
+                stopAtTop = effectiveParams.stopAtTop,
+                isAMRAP = effectiveParams.isAMRAP
             )
 
             // Log timed cable exercise detection
@@ -1169,12 +1228,23 @@ class MainViewModel constructor(
         restTimerJob = null
 
         viewModelScope.launch {
-             // Reset timed workout flag
-             isCurrentWorkoutTimed = false
+            // Reset timed workout flag
+            isCurrentWorkoutTimed = false
+            _isCurrentExerciseBodyweight.value = false
 
-             // Send RESET command (0x0A) to fully stop workout on machine
-             // This matches parent repo and web app behavior
-             bleRepository.stopWorkout()
+             // Manual stop: match parent behavior (skip BLE stop for bodyweight)
+             val currentExercise = _loadedRoutine.value?.exercises?.getOrNull(_currentExerciseIndex.value)
+             val isBodyweight = isBodyweightExercise(currentExercise)
+             println("Issue222 TRACE: manual stop -> isBodyweight=$isBodyweight, exitingWorkout=$shouldExitToIdle")
+             if (!isBodyweight) {
+                 // Send RESET command (0x0A) to fully stop workout on machine
+                 // This matches parent repo and web app behavior
+                 println("Issue222 TRACE: manual stop -> calling bleRepository.stopWorkout()")
+                 bleRepository.stopWorkout()
+             } else {
+                 println("Issue222 TRACE: manual stop -> skipping BLE stop (bodyweight)")
+                 Logger.d("Manual stop: bodyweight exercise - skipping BLE stop (parent-aligned)")
+             }
              _hapticEvents.emit(HapticEvent.WORKOUT_END)
 
              val params = _workoutParameters.value
@@ -2022,6 +2092,11 @@ class MainViewModel constructor(
         _skippedExercises.value = emptySet()
         _completedExercises.value = emptySet()
 
+        // Issue #222 diagnostic: Reset bodyweight counter for new routine
+        bodyweightSetsCompletedInRoutine = 0
+        // Issue #222 v8: Reset transition flag for new routine
+        previousExerciseWasBodyweight = false
+
         // Reset workout state to Idle when loading a routine
         // This fixes the bug where stale Resting state persists from a previous workout
         _workoutState.value = WorkoutState.Idle
@@ -2033,8 +2108,8 @@ class MainViewModel constructor(
         val firstSetWeight = firstExercise.setWeightsPerCableKg.getOrNull(0)
             ?: firstExercise.weightPerCableKg
 
-        // Check if first exercise is duration-based (timed exercise)
-        val isDurationBased = firstExercise.duration != null && firstExercise.duration > 0
+        // Only bodyweight exercises should have warmupReps = 0
+        val isFirstBodyweight = isBodyweightExercise(firstExercise)
 
         // Issue #188: Trace routine loading with println for reliable logcat output
         println("Issue188-Load: ╔══════════════════════════════════════════════════════════════")
@@ -2064,7 +2139,7 @@ class MainViewModel constructor(
             isJustLift = false,  // CRITICAL: Routines are NOT just lift mode
             useAutoStart = false,
             stopAtTop = stopAtTop.value,
-            warmupReps = if (isDurationBased) 0 else _workoutParameters.value.warmupReps,
+            warmupReps = if (isFirstBodyweight) 0 else Constants.DEFAULT_WARMUP_REPS,
             isAMRAP = firstIsAMRAP, // Issue #203: Check both per-set (null reps) and exercise-level flag
             selectedExerciseId = firstExercise.exercise.id,
             stallDetectionEnabled = firstExercise.stallDetectionEnabled
@@ -3425,27 +3500,26 @@ class MainViewModel constructor(
 
             // Reset timed workout flag
             isCurrentWorkoutTimed = false
+            _isCurrentExerciseBodyweight.value = false
 
-            // Issue #222: Check if this was a bodyweight/duration exercise (no BLE workout was started)
-            // For bodyweight exercises with duration, startWorkout() skips all BLE commands,
-            // so calling stopWorkout() would send RESET to an already-idle machine.
-            // This can cause issues when transitioning to the next cable exercise in supersets.
+            // Track if this was a bodyweight exercise (for UI decisions like skipping summary)
             val currentExercise = _loadedRoutine.value?.exercises?.getOrNull(_currentExerciseIndex.value)
-            val wasBodyweightDuration = currentExercise?.let {
-                val isBodyweight = isBodyweightExercise(it)
-                val hasDuration = it.duration != null && it.duration > 0
-                isBodyweight && hasDuration
-            } ?: false
+            val wasBodyweight = isBodyweightExercise(currentExercise)
 
-            // Stop hardware - use stopWorkout() which sends RESET command (0x0A), delays 50ms, and STOPS polling
-            // This matches parent repo behavior - polling must be fully stopped before restarting
-            // to properly clear the machine's internal state (prevents red light mode on 2nd+ sets)
-            // Issue #222: Skip for bodyweight/duration exercises since no BLE workout was started
-            if (!wasBodyweightDuration) {
-                bleRepository.stopWorkout()
-            } else {
-                Logger.d("handleSetCompletion: Skipping stopWorkout() for bodyweight/duration exercise (no BLE workout was started)")
+            // Issue #222 diagnostic: Track bodyweight sets completed
+            if (wasBodyweight) {
+                bodyweightSetsCompletedInRoutine++
+                println("Issue222: ⏱️ Bodyweight set #$bodyweightSetsCompletedInRoutine completed (exercise=${currentExercise?.exercise?.name})")
             }
+
+            // Issue #222 v8: Track if this was bodyweight for transition detection in next startWorkout()
+            previousExerciseWasBodyweight = wasBodyweight
+            Logger.d { "Issue #222 v8: Set previousExerciseWasBodyweight=$wasBodyweight" }
+
+            // Parent auto-completion always calls stopWorkout (bodyweight timer also flows here).
+            println("Issue222 TRACE: handleSetCompletion -> stopWorkout (auto-complete), wasBodyweight=$wasBodyweight")
+            bleRepository.stopWorkout()
+            Logger.d("handleSetCompletion: Called stopWorkout() (auto-complete)")
             _hapticEvents.emit(HapticEvent.WORKOUT_END)
 
             // Save session
@@ -3474,14 +3548,19 @@ class MainViewModel constructor(
             val skipSummary = summaryCountdownSeconds < 0
             val summaryDelayMs = if (skipSummary) 0L else summaryCountdownSeconds * 1000L
 
-            Logger.d("handleSetCompletion: summaryCountdownSeconds=$summaryCountdownSeconds, skipSummary=$skipSummary, isJustLift=$isJustLift, isAMRAP=${params.isAMRAP}")
+            // Issue #222: Bodyweight exercises have nothing to summarize (no weight, no metrics)
+            // Always skip summary for bodyweight regardless of user preference
+            val skipSummaryForBodyweight = wasBodyweight
+            val effectiveSkipSummary = skipSummary || skipSummaryForBodyweight
 
-            // Show set summary (unless user has summary set to "Off")
-            if (!skipSummary) {
-                Logger.d("handleSetCompletion: Setting state to SetSummary (skipSummary=false)")
+            Logger.d("handleSetCompletion: summaryCountdownSeconds=$summaryCountdownSeconds, skipSummary=$skipSummary, wasBodyweight=$wasBodyweight, effectiveSkipSummary=$effectiveSkipSummary, isJustLift=$isJustLift, isAMRAP=${params.isAMRAP}")
+
+            // Show set summary (unless user has summary set to "Off" OR it's a bodyweight exercise)
+            if (!effectiveSkipSummary) {
+                Logger.d("handleSetCompletion: Setting state to SetSummary (effectiveSkipSummary=false)")
                 _workoutState.value = summary
             } else {
-                Logger.d("handleSetCompletion: Skipping SetSummary state (skipSummary=true)")
+                Logger.d("handleSetCompletion: Skipping SetSummary state (effectiveSkipSummary=true, wasBodyweight=$wasBodyweight)")
             }
 
             if (isJustLift) {
@@ -3562,22 +3641,20 @@ class MainViewModel constructor(
                 }
             } else {
                 // Routine/Program mode (includes Single Exercise)
-                Logger.d("Routine/SingleExercise mode: skipSummary=$skipSummary, summaryCountdownSeconds=$summaryCountdownSeconds")
-                if (skipSummary) {
+                Logger.d("Routine/SingleExercise mode: skipSummary=$skipSummary, effectiveSkipSummary=$effectiveSkipSummary, wasBodyweight=$wasBodyweight, summaryCountdownSeconds=$summaryCountdownSeconds")
+                if (effectiveSkipSummary) {
                     // Issue #167: Summary is "Off" (-1) - skip summary screen entirely
+                    // Issue #222: Also skip for bodyweight exercises (nothing to summarize)
                     // Proceed directly to rest timer or next set, similar to Just Lift flow
-                    Logger.d("Routine mode: Summary OFF - skipping summary, calling startRestTimer()")
+                    Logger.d("Routine mode: Summary skipped (effectiveSkipSummary=true, wasBodyweight=$wasBodyweight) - calling startRestTimer()")
 
                     // Reset logical state for next set
                     repCounter.reset()
                     resetAutoStopState()
 
-                    // Restart monitor polling to clear machine fault state (red lights)
-                    bleRepository.restartMonitorPolling()
-
-                    // Enable handle detection for auto-start during rest
-                    enableHandleDetection()
-                    bleRepository.enableJustLiftWaitingMode()
+                    // Parent-aligned: Do NOT restart polling or auto-start here for routine mode.
+                    // The parent repo stays idle between sets until the next start.
+                    Logger.d("Routine mode: Parent-aligned - no polling restart/auto-start during rest")
 
                     // Proceed to rest timer (which handles 0 rest time correctly now)
                     startRestTimer()
@@ -4065,12 +4142,25 @@ class MainViewModel constructor(
 
             val completedSetIndex = _currentSetIndex.value
 
+            // Issue #222: Use getNextStep() to determine the ACTUAL next exercise/set
+            // This correctly handles all superset cases including end-of-cycle → next-cycle
+            val nextStep = if (routine != null) {
+                getNextStep(routine, _currentExerciseIndex.value, _currentSetIndex.value)
+            } else null
+            val nextExerciseFromStep = if (nextStep != null && routine != null) {
+                routine.exercises.getOrNull(nextStep.first)
+            } else null
+            val nextSetIdxFromStep = nextStep?.second
+
             // Determine rest duration:
-            // - If in a superset and NOT at the end of the cycle, use short superset rest
+            // - If in a superset transition (mid-cycle OR between cycles), use short superset rest
             // - Otherwise, use the normal per-set rest time
             // - 0 rest time is valid and means "skip rest, go immediately to next set"
+            // Issue #222: Check if NEXT exercise is in same superset (handles end-of-cycle case)
             val isInSupersetTransition = isInSuperset() && !isAtEndOfSupersetCycle()
-            val restDuration = if (isInSupersetTransition) {
+            val isStillInSupersetWorkout = isInSuperset() && nextExerciseFromStep != null &&
+                nextExerciseFromStep.supersetId == currentExercise?.supersetId
+            val restDuration = if (isInSupersetTransition || isStillInSupersetWorkout) {
                 getSupersetRestSeconds().coerceAtLeast(5) // Min 5s for superset transitions
             } else {
                 currentExercise?.getRestForSet(completedSetIndex) ?: 90
@@ -4083,22 +4173,9 @@ class MainViewModel constructor(
             // Handle 0 rest time: skip rest timer entirely and advance immediately
             // This supports use cases like alternating arms where user wants no rest between sides
             if (restDuration == 0) {
-                Logger.d { "Rest duration is 0 - skipping rest timer, advancing immediately" }
-                // Issue #222: Only send STOP/RESET if previous exercise was cable-based
-                val wasBodyweight = isBodyweightExercise(currentExercise)
-                if (!wasBodyweight) {
-                    try {
-                        bleRepository.sendStopCommand()
-                        delay(100)
-                        bleRepository.stopWorkout()
-                        delay(150)
-                        Logger.d("MainViewModel") { "Issue #222: BLE stop sequence sent for 0-rest transition (cable exercise)" }
-                    } catch (e: Exception) {
-                        Logger.w(e) { "Stop command for 0-rest transition failed (non-fatal): ${e.message}" }
-                    }
-                } else {
-                    Logger.d("MainViewModel") { "Issue #222: Skipping BLE stop for 0-rest - previous was bodyweight" }
-                }
+                // Issue #222 v15.2: Parent does NOT send STOP/RESET during rest transitions.
+                // The machine already received RESET in handleSetCompletion().
+                Logger.d { "Rest duration is 0 - skipping rest timer, advancing immediately (no BLE stop - already sent at set end)" }
                 if (isSingleExerciseMode()) {
                     advanceToNextSetInSingleExercise()
                 } else {
@@ -4108,8 +4185,8 @@ class MainViewModel constructor(
             }
 
             // Determine superset label for display
-            val supersetLabel = if (isInSupersetTransition) {
-                val supersetExercises = getCurrentSupersetExercises()
+            // Issue #222: Show superset label for ALL transitions within superset (mid-cycle AND between-cycles)
+            val supersetLabel = if (isInSupersetTransition || isStillInSupersetWorkout) {
                 val supersetIds = routine?.supersets?.map { it.id } ?: emptyList()
                 val groupIndex = supersetIds.indexOf(currentExercise?.supersetId)
                 if (groupIndex >= 0) "Superset ${('A' + groupIndex)}" else "Superset"
@@ -4123,30 +4200,21 @@ class MainViewModel constructor(
             val isLastExerciseOverall = calculateIsLastExercise(isSingleExercise, currentExercise, routine)
             val isTransitioningToNextExercise = isLastSetOfCurrentExercise && !isLastExerciseOverall && !isSingleExercise
 
-            // For superset transitions, we're moving to a different exercise but same set index
-            // For exercise transitions, we're moving to the first set of the next exercise
-            val nextExercise = if (isTransitioningToNextExercise && !isInSupersetTransition) {
-                routine?.exercises?.getOrNull(_currentExerciseIndex.value + 1)
-            } else if (isInSupersetTransition) {
-                // During superset transition, get the next exercise in the superset
-                val nextSupersetIndex = getNextSupersetExerciseIndex()
-                if (nextSupersetIndex != null) routine?.exercises?.getOrNull(nextSupersetIndex) else null
-            } else {
-                null
-            }
+            // Issue #222: Use getNextStep() result for next exercise determination
+            // This handles ALL cases correctly: mid-cycle superset, end-of-cycle → next-cycle, normal transitions
+            // The old duplicate logic didn't handle the end-of-superset-cycle case
+            val nextExercise = nextExerciseFromStep
 
-            // Issue #170/#203: Update workoutParameters with NEXT exercise/set settings when transitioning
+            // Issue #170/#203/#222: Update workoutParameters with NEXT exercise/set settings when transitioning
             // This ensures the rest screen shows the correct mode, weight, reps for the upcoming set
-            // Issue #203: Handle SAME-EXERCISE set transitions (e.g., Set 1 → Set 2 within one exercise)
-            // Previously, params were only updated when transitioning to a DIFFERENT exercise (nextExercise != null)
-            // This caused isAMRAP to stay false for mixed routines (Target → AMRAP → AMRAP)
-            val exerciseForNextSet = nextExercise ?: currentExercise
-            if (exerciseForNextSet != null) {
-                val nextSetIdx = when {
-                    isInSupersetTransition -> _currentSetIndex.value
-                    isTransitioningToNextExercise -> 0
-                    else -> completedSetIndex + 1  // Same exercise, next set
-                }
+            // Issue #222: Use nextExerciseFromStep which correctly resolves for ALL superset cases
+            // Issue #222: Skip parameter update for bodyweight exercises - no cable settings to configure
+            val exerciseForNextSet = nextExerciseFromStep ?: currentExercise
+            val nextExerciseIsBodyweight = isBodyweightExercise(exerciseForNextSet)
+
+            if (exerciseForNextSet != null && !nextExerciseIsBodyweight) {
+                // Issue #222: Use set index from getNextStep() which handles superset cycles correctly
+                val nextSetIdx = nextSetIdxFromStep ?: (completedSetIndex + 1)
 
                 // Guard: Only update if there IS a next set (not past the last set)
                 val hasNextSet = nextSetIdx < exerciseForNextSet.setReps.size
@@ -4154,8 +4222,7 @@ class MainViewModel constructor(
                     val nextSetReps = exerciseForNextSet.setReps.getOrNull(nextSetIdx)
                     val nextSetWeight = exerciseForNextSet.setWeightsPerCableKg.getOrNull(nextSetIdx)
                         ?: exerciseForNextSet.weightPerCableKg
-                    // Issue #196: Duration exercises should never have warmup reps
-                    val nextIsDurationBased = exerciseForNextSet.duration != null && exerciseForNextSet.duration > 0
+                    // Only bodyweight exercises should have warmupReps = 0
                     // Issue #203: Fallback to exercise-level isAMRAP flag for legacy ExerciseEditDialog compatibility
                     // Legacy "Last set AMRAP" only applies when we're on the last set
                     val isNextSetLastSet = nextSetIdx >= exerciseForNextSet.setReps.size - 1
@@ -4171,24 +4238,19 @@ class MainViewModel constructor(
                         selectedExerciseId = exerciseForNextSet.exercise.id,
                         isAMRAP = nextIsAMRAP,
                         stallDetectionEnabled = exerciseForNextSet.stallDetectionEnabled,
-                        warmupReps = if (nextIsDurationBased) 0 else _workoutParameters.value.warmupReps
+                        warmupReps = if (nextExerciseIsBodyweight) 0 else Constants.DEFAULT_WARMUP_REPS
                     )
                     Logger.d { "startRestTimer: Issue #203 - Updated params for next set: ${exerciseForNextSet.exercise.name}, setIdx=$nextSetIdx, isAMRAP=$nextIsAMRAP, nextSetReps=$nextSetReps" }
                 }
+            } else if (nextExerciseIsBodyweight) {
+                Logger.d { "startRestTimer: Issue #222 - Skipping params update for bodyweight exercise: ${nextExerciseFromStep?.exercise?.name}" }
             }
 
             // Calculate display values for the rest timer
-            // UI adds +1 to displaySetIndex for display, so we pass the 0-indexed value of the UPCOMING set
-            val displaySetIndex = when {
-                isTransitioningToNextExercise && !isInSupersetTransition -> 0 // About to do set 1 of next exercise
-                isInSupersetTransition -> _currentSetIndex.value // Same set index, moving to different exercise in superset
-                else -> _currentSetIndex.value + 1 // About to do next set in same exercise
-            }
-            val displayTotalSets = when {
-                isTransitioningToNextExercise && !isInSupersetTransition -> nextExercise?.setReps?.size ?: 0
-                isInSupersetTransition && nextExercise != null -> nextExercise.setReps.size
-                else -> currentExercise?.setReps?.size ?: 0
-            }
+            // Issue #222: Use nextSetIdxFromStep and nextExerciseFromStep for correct display
+            // This handles end-of-superset-cycle case where we transition to next cycle's first exercise
+            val displaySetIndex = nextSetIdxFromStep ?: (_currentSetIndex.value + 1)
+            val displayTotalSets = nextExerciseFromStep?.setReps?.size ?: currentExercise?.setReps?.size ?: 0
 
             // Countdown using elapsed-time calculation to prevent drift
             val startTime = currentTimeMillis()
@@ -4200,13 +4262,14 @@ class MainViewModel constructor(
 
                 val nextName = calculateNextExerciseName(isSingleExercise, currentExercise, routine)
 
+                // Issue #222: Use isStillInSupersetWorkout to show superset UI for between-cycle transitions
                 _workoutState.value = WorkoutState.Resting(
                     restSecondsRemaining = remainingSeconds,
                     nextExerciseName = nextName,
                     isLastExercise = isLastExerciseOverall,
                     currentSet = displaySetIndex,
                     totalSets = displayTotalSets,
-                    isSupersetTransition = isInSupersetTransition,
+                    isSupersetTransition = isInSupersetTransition || isStillInSupersetWorkout,
                     supersetLabel = supersetLabel
                 )
 
@@ -4214,21 +4277,10 @@ class MainViewModel constructor(
             }
 
             if (autoplay) {
-                // Issue #222: Only send STOP/RESET if previous exercise was cable-based
-                val wasBodyweight = isBodyweightExercise(currentExercise)
-                if (!wasBodyweight) {
-                    try {
-                        bleRepository.sendStopCommand()
-                        delay(100)
-                        bleRepository.stopWorkout()
-                        delay(150)
-                        Logger.d("MainViewModel") { "Issue #222: BLE stop sequence sent after rest timer (cable exercise)" }
-                    } catch (e: Exception) {
-                        Logger.w(e) { "Stop command after rest timer failed (non-fatal): ${e.message}" }
-                    }
-                } else {
-                    Logger.d("MainViewModel") { "Issue #222: Skipping BLE stop after rest timer - previous was bodyweight" }
-                }
+                // Issue #222 v15.2: Parent does NOT send STOP/RESET during rest transitions.
+                // The machine already received RESET in handleSetCompletion().
+                // Sending extra STOP/RESET here confuses the machine → fault 16384.
+                Logger.d("MainViewModel") { "autoplay rest complete: advancing to next set (no BLE stop - already sent at set end)" }
                 if (isSingleExercise) {
                     advanceToNextSetInSingleExercise()
                 } else {
@@ -4236,13 +4288,14 @@ class MainViewModel constructor(
                 }
             } else {
                 // Stay in resting state with 0 seconds - user must manually start
+                // Issue #222: Use isStillInSupersetWorkout for between-cycle transitions
                 _workoutState.value = WorkoutState.Resting(
                     restSecondsRemaining = 0,
                     nextExerciseName = calculateNextExerciseName(isSingleExercise, currentExercise, routine),
                     isLastExercise = isLastExerciseOverall,
                     currentSet = displaySetIndex,
                     totalSets = displayTotalSets,
-                    isSupersetTransition = isInSupersetTransition,
+                    isSupersetTransition = isInSupersetTransition || isStillInSupersetWorkout,
                     supersetLabel = supersetLabel
                 )
             }
@@ -4456,8 +4509,8 @@ class MainViewModel constructor(
             }
             _userAdjustedWeightDuringRest = false // Reset flag after use
 
-            // Issue #196: Duration exercises should never have warmup reps
-            val nextIsDurationBased = nextExercise.duration != null && nextExercise.duration > 0
+            // Only bodyweight exercises should have warmupReps = 0
+            val nextIsBodyweight = isBodyweightExercise(nextExercise)
 
             // Issue #203: Fallback to exercise-level isAMRAP flag for legacy ExerciseEditDialog compatibility
             // Legacy "Last set AMRAP" only applies when we're on the last set
@@ -4474,9 +4527,9 @@ class MainViewModel constructor(
                 selectedExerciseId = nextExercise.exercise.id,
                 isAMRAP = nextIsAMRAP,
                 stallDetectionEnabled = nextExercise.stallDetectionEnabled,
-                warmupReps = if (nextIsDurationBased) 0 else currentParams.warmupReps
+                warmupReps = if (nextIsBodyweight) 0 else Constants.DEFAULT_WARMUP_REPS
             )
-            Logger.d { "startNextSetOrExercise: Issue #203 - progressionKg=${nextExercise.progressionKg}kg for ${nextExercise.exercise.displayName}, isDuration=$nextIsDurationBased, isAMRAP=$nextIsAMRAP" }
+            Logger.d { "startNextSetOrExercise: Issue #203 - progressionKg=${nextExercise.progressionKg}kg for ${nextExercise.exercise.displayName}, isBodyweight=$nextIsBodyweight, isAMRAP=$nextIsAMRAP" }
 
             // Use full reset when changing exercises, counts-only reset for same exercise
             if (isChangingExercise) {
@@ -4505,45 +4558,21 @@ class MainViewModel constructor(
 
     /**
      * Skip the current rest timer and immediately start the next set/exercise.
-     * Issue #222: STOP/RESET is only needed if the previous exercise was a cable exercise
-     * (i.e., BLE workout was actually running). For bodyweight exercises, the machine
-     * was idle, so there's nothing to stop/reset.
+     * Issue #222 v15.2: Parent does NOT send STOP/RESET here - it only sends RESET at set completion.
      */
     fun skipRest() {
         if (_workoutState.value is WorkoutState.Resting) {
             restTimerJob?.cancel()
             restTimerJob = null
 
-            // Issue #222: Check if the exercise we just completed was bodyweight
-            // If so, skip STOP/RESET since the machine was idle during bodyweight exercises
-            val currentExercise = _loadedRoutine.value?.exercises?.getOrNull(_currentExerciseIndex.value)
-            val wasBodyweight = isBodyweightExercise(currentExercise)
+            // Issue #222 v15.2: Parent does NOT send STOP/RESET during rest transitions.
+            // The machine already received RESET in handleSetCompletion().
+            Logger.d("MainViewModel") { "skipRest: advancing to next set (no BLE stop - already sent at set end)" }
 
-            viewModelScope.launch {
-                if (!wasBodyweight) {
-                    // Only send STOP/RESET if previous exercise was cable-based
-                    try {
-                        // Issue #205: Clear any fault state with StopPacket (0x50)
-                        bleRepository.sendStopCommand()
-                        delay(100)  // Allow fault clear to process
-
-                        // Full reset with RESET command (0x0A)
-                        bleRepository.stopWorkout()
-                        delay(150)  // Settling time for machine to process
-
-                        Logger.d("MainViewModel") { "Issue #222: BLE stop sequence sent before skip rest (cable exercise)" }
-                    } catch (e: Exception) {
-                        Logger.w(e) { "Stop command before skip rest failed (non-fatal): ${e.message}" }
-                    }
-                } else {
-                    Logger.d("MainViewModel") { "Issue #222: Skipping BLE stop sequence - previous exercise was bodyweight (machine was idle)" }
-                }
-
-                if (isSingleExerciseMode()) {
-                    advanceToNextSetInSingleExercise()
-                } else {
-                    startNextSetOrExercise()
-                }
+            if (isSingleExerciseMode()) {
+                advanceToNextSetInSingleExercise()
+            } else {
+                startNextSetOrExercise()
             }
         }
     }
@@ -4551,36 +4580,19 @@ class MainViewModel constructor(
     /**
      * Manually trigger starting the next set when autoplay is disabled.
      * Called from UI when user taps "Start Next Set" button.
-     * Issue #222: STOP/RESET only needed if previous exercise was cable-based.
+     * Issue #222 v15.2: Parent does NOT send STOP/RESET here - it only sends RESET at set completion.
      */
     fun startNextSet() {
         val state = _workoutState.value
         if (state is WorkoutState.Resting && state.restSecondsRemaining == 0) {
-            // Issue #222: Check if the exercise we just completed was bodyweight
-            val currentExercise = _loadedRoutine.value?.exercises?.getOrNull(_currentExerciseIndex.value)
-            val wasBodyweight = isBodyweightExercise(currentExercise)
+            // Issue #222 v15.2: Parent does NOT send STOP/RESET during rest transitions.
+            // The machine already received RESET in handleSetCompletion().
+            Logger.d("MainViewModel") { "startNextSet: advancing (no BLE stop - already sent at set end)" }
 
-            viewModelScope.launch {
-                if (!wasBodyweight) {
-                    // Only send STOP/RESET if previous exercise was cable-based
-                    try {
-                        bleRepository.sendStopCommand()
-                        delay(100)
-                        bleRepository.stopWorkout()
-                        delay(150)
-                        Logger.d("MainViewModel") { "Issue #222: BLE stop sequence sent for startNextSet (cable exercise)" }
-                    } catch (e: Exception) {
-                        Logger.w(e) { "Stop command for startNextSet failed (non-fatal): ${e.message}" }
-                    }
-                } else {
-                    Logger.d("MainViewModel") { "Issue #222: Skipping BLE stop sequence for startNextSet - previous was bodyweight" }
-                }
-
-                if (isSingleExerciseMode()) {
-                    advanceToNextSetInSingleExercise()
-                } else {
-                    startNextSetOrExercise()
-                }
+            if (isSingleExerciseMode()) {
+                advanceToNextSetInSingleExercise()
+            } else {
+                startNextSetOrExercise()
             }
         }
     }

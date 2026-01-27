@@ -63,6 +63,8 @@ fun RestTimerCard(
     eccentricLoadPercent: Int? = null,
     onUpdateEchoLevel: ((EchoLevel) -> Unit)? = null,
     onUpdateEccentricLoad: ((Int) -> Unit)? = null,
+    // Issue #222: Flag to indicate next exercise is bodyweight (no config card needed)
+    isNextExerciseBodyweight: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Local state for editing parameters
@@ -192,7 +194,8 @@ fun RestTimerCard(
                 )
 
                 // Mode display (moved from parameters card)
-                if (!isLastExercise && nextExerciseMode != null) {
+                // Issue #222: Hide for bodyweight exercises
+                if (!isLastExercise && nextExerciseMode != null && !isNextExerciseBodyweight) {
                     Text(
                         text = "$nextExerciseMode Mode",
                         style = MaterialTheme.typography.bodyMedium,
@@ -213,7 +216,8 @@ fun RestTimerCard(
 
             // Editable workout parameters (if available and not last exercise)
             // Show for: non-Echo modes with weight/reps, OR Echo mode with echo settings
-            val showConfigCard = !isLastExercise && (
+            // Issue #222: Never show for bodyweight exercises
+            val showConfigCard = !isLastExercise && !isNextExerciseBodyweight && (
                 (isEchoMode && (echoLevel != null || nextExerciseReps != null)) ||
                 (!isEchoMode && (nextExerciseWeight != null || nextExerciseReps != null))
             )

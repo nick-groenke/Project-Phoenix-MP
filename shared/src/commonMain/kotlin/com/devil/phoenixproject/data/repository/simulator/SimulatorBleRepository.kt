@@ -337,6 +337,19 @@ class SimulatorBleRepository(
         simulationJob = null
     }
 
+    override fun stopMonitorPollingOnly() {
+        log.d { "Stopping monitor polling only (simulated) - diagnostic polling + heartbeat continue" }
+        // Issue #222: In real BLE, diagnostic polling at 500ms keeps the link warm during bodyweight.
+        // In simulator, we just stop the simulation job (no actual BLE to keep warm).
+        simulationJob?.cancel()
+        simulationJob = null
+    }
+
+    override fun restartDiagnosticPolling() {
+        log.d { "Restarting diagnostic polling (simulated) - Issue #222 v10" }
+        // In simulator, nothing to restart - no actual BLE
+    }
+
     // ========== Disco Mode ==========
 
     override fun startDiscoMode() {

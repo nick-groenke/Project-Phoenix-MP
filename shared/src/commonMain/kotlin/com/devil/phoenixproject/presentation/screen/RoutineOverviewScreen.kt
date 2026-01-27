@@ -263,6 +263,10 @@ private fun ExerciseOverviewCard(
     val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
     val weightStep = if (weightUnit == WeightUnit.LB) 0.5f else 0.25f  // Fine-grained like RestTimerCard
 
+    // Issue #222: Check if bodyweight exercise (no cable configuration needed)
+    val equipment = exercise.exercise.equipment
+    val isBodyweight = equipment.isEmpty() || equipment.equals("bodyweight", ignoreCase = true)
+
     Card(
         modifier = Modifier.fillMaxSize(),
         shape = RoundedCornerShape(24.dp),
@@ -307,15 +311,26 @@ private fun ExerciseOverviewCard(
                         .clip(RoundedCornerShape(12.dp))
                 )
 
-                // Mode indicator (read-only)
-                Text(
-                    exercise.programMode.displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // Mode indicator (read-only) - Issue #222: Hide for bodyweight exercises
+                if (!isBodyweight) {
+                    Text(
+                        exercise.programMode.displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    // Show "Timed Exercise" or duration for bodyweight
+                    val durationText = exercise.duration?.let { "${it}s" } ?: "Timed"
+                    Text(
+                        "Bodyweight • $durationText",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 // Adjustment controls - matching RestTimerCard style
-                Card(
+                // Issue #222: Only show for cable exercises, not bodyweight
+                if (!isBodyweight) Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest

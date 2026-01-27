@@ -254,6 +254,14 @@ class FakeBleRepository : BleRepository {
         // No-op in fake
     }
 
+    override fun stopMonitorPollingOnly() {
+        // No-op in fake
+    }
+
+    override fun restartDiagnosticPolling() {
+        // No-op in fake
+    }
+
     override fun startDiscoMode() {
         _discoModeActive.value = true
     }

@@ -105,7 +105,8 @@ fun WorkoutTab(
         showWorkoutSetupCard = state.showWorkoutSetupCard,
         loadBaselineA = state.loadBaselineA,
         loadBaselineB = state.loadBaselineB,
-        timedExerciseRemainingSeconds = state.timedExerciseRemainingSeconds
+        timedExerciseRemainingSeconds = state.timedExerciseRemainingSeconds,
+        isCurrentExerciseBodyweight = state.isCurrentExerciseBodyweight
     )
 }
 
@@ -161,7 +162,8 @@ fun WorkoutTab(
     showWorkoutSetupCard: Boolean = true,
     loadBaselineA: Float = 0f,
     loadBaselineB: Float = 0f,
-    timedExerciseRemainingSeconds: Int? = null  // Issue #192: Countdown for timed exercises
+    timedExerciseRemainingSeconds: Int? = null,  // Issue #192: Countdown for timed exercises
+    isCurrentExerciseBodyweight: Boolean = false
 ) {
     // Note: HapticFeedbackEffect is now global in EnhancedMainScreen
     // No need for local haptic effect here
@@ -192,6 +194,7 @@ fun WorkoutTab(
             loadBaselineA = loadBaselineA,
             loadBaselineB = loadBaselineB,
             timedExerciseRemainingSeconds = timedExerciseRemainingSeconds,
+            isCurrentExerciseBodyweight = isCurrentExerciseBodyweight,
             modifier = modifier
         )
         return
@@ -410,6 +413,18 @@ fun WorkoutTab(
                     }
                 }
                 is WorkoutState.Resting -> {
+                    // Issue #222: Determine if next exercise is bodyweight to hide config card
+                    // Parse the next exercise name to find the matching exercise in the routine
+                    val nextExerciseName = workoutState.nextExerciseName
+                    val nextExercise = loadedRoutine?.exercises?.find {
+                        it.exercise.name == nextExerciseName ||
+                        it.exercise.displayName == nextExerciseName ||
+                        nextExerciseName.startsWith(it.exercise.name) ||
+                        nextExerciseName.startsWith(it.exercise.displayName)
+                    }
+                    val nextEquipment = nextExercise?.exercise?.equipment ?: ""
+                    val isNextBodyweight = nextEquipment.isEmpty() || nextEquipment.equals("bodyweight", ignoreCase = true)
+
                     RestTimerCard(
                         restSecondsRemaining = workoutState.restSecondsRemaining,
                         nextExerciseName = workoutState.nextExerciseName,
@@ -449,7 +464,8 @@ fun WorkoutTab(
                                 .minByOrNull { kotlin.math.abs(it.percentage - newPercent) }
                                 ?: com.devil.phoenixproject.domain.model.EccentricLoad.LOAD_100
                             onUpdateParameters(workoutParameters.copy(eccentricLoad = newLoad))
-                        }
+                        },
+                        isNextExerciseBodyweight = isNextBodyweight
                     )
                 }
                 else -> {}

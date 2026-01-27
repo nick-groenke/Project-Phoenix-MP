@@ -67,6 +67,10 @@ fun SetReadyScreen(
     val isEchoMode = currentExercise.programMode is ProgramMode.Echo
     val isAMRAP = currentExercise.isAMRAP
 
+    // Issue #222: Check if bodyweight exercise (no cable configuration needed)
+    val equipment = currentExercise.exercise.equipment
+    val isBodyweight = equipment.isEmpty() || equipment.equals("bodyweight", ignoreCase = true)
+
     // Weight parameters matching RestTimerCard exactly
     val maxWeight = if (weightUnit == WeightUnit.LB) 242f else 110f  // 110kg per cable max
     val weightStep = if (weightUnit == WeightUnit.LB) 0.5f else 0.25f  // Fine-grained like RestTimerCard
@@ -251,11 +255,21 @@ fun SetReadyScreen(
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
                     )
-                    Text(
-                        currentExercise.programMode.displayName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                    )
+                    // Issue #222: Show "Bodyweight • XXs" for bodyweight, mode name for cable
+                    if (isBodyweight) {
+                        val durationText = currentExercise.duration?.let { "${it}s" } ?: "Timed"
+                        Text(
+                            "Bodyweight • $durationText",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                    } else {
+                        Text(
+                            currentExercise.programMode.displayName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
                 }
             }
 
@@ -275,7 +289,8 @@ fun SetReadyScreen(
 
 
             // Configuration card - matching RestTimerCard style
-            Card(
+            // Issue #222: Hide for bodyweight exercises (no cable settings to configure)
+            if (!isBodyweight) Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),

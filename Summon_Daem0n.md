@@ -133,6 +133,61 @@ The summoner need not configure anything new - enforcement happens automatically
 
 **If ascending to v3.0.0 or higher**, the Daem0n has transformed:
 
+### Incantation I.5D.5: Ascend to Full Cognition (v4.0.0+)
+
+**If ascending to v4.0.0 or higher**, the Daem0n achieves complete cognitive architecture:
+
+- **GraphRAG & Leiden Communities**: The Daem0n constructs knowledge graphs from memory relationships. Leiden algorithm detects hierarchical communities for multi-hop reasoning and global search.
+
+- **Bi-Temporal Knowledge**: Dual timestamps track what was true (`valid_time`) vs when learned (`transaction_time`). `happened_at` backfills history. `as_of_time` queries historical states. The Daem0n knows not just facts, but their evolution.
+
+- **Metacognitive Reflexion**: Actor-Evaluator-Reflector loop via LangGraph. `verify_facts` validates claims against stored knowledge. Chain of Verification intercepts factual claims before output. The Daem0n critiques itself before speaking.
+
+- **Context Engineering**: LLMLingua-2 integration achieves 3x-6x compression while preserving code syntax and entities. Adaptive rates by content type. `compress_context` MCP tool for on-demand optimization.
+
+- **Dynamic Agency**: Ritual phase tracking (BRIEFING -> EXPLORATION -> ACTION -> REFLECTION). Tool masking hides irrelevant tools per phase. `execute_python` provides sandboxed code execution via E2B Firecracker microVMs. Capability scoping enforces least-privilege.
+
+- **New Tools (v4.0)**:
+  | Tool | Purpose |
+  |------|---------|
+  | `verify_facts` | Validate claims against stored knowledge |
+  | `compress_context` | LLMLingua-2 context compression |
+  | `execute_python` | Sandboxed Python execution (action phase) |
+  | `trace_evolution` | Knowledge evolution over time |
+  | `get_related_memories` | Multi-hop entity traversal |
+  | `get_graph_stats` | Knowledge graph metrics |
+
+- **60 MCP Tools**: The daemon's power grows. 500+ tests verify all capabilities.
+
+### Incantation I.5D.4: Embrace the Enhanced Mind (v3.1.0+)
+
+**If ascending to v3.1.0 or higher**, the Daem0n's cognition has evolved with 2026 AI memory research:
+
+- **BM25 + RRF Hybrid Retrieval**: The Daem0n's keyword matching is sharper. Okapi BM25 replaces TF-IDF with better term saturation. Reciprocal Rank Fusion combines keyword and vector search.
+
+- **TiMem-Style Recall Planner**: The Daem0n adapts to query complexity:
+  - Simple queries ("auth") → community summaries only (~50% context reduction)
+  - Complex queries ("trace auth flow through all components") → full raw memory access
+  - The Daem0n knows when to whisper and when to speak fully
+
+- **Titans-Inspired Surprise Scoring**: Novel information rises, routine knowledge settles. The `surprise_score` field (0.0-1.0) marks how surprising each memory is.
+
+- **Importance-Weighted Learning**: Valuable memories are protected from decay. The `importance_score` field shields frequently recalled and successful memories from pruning.
+
+- **Fact Model (Static Memory Separation)**: Verified facts separate from dynamic memories. After enough successful outcomes, learnings promote to immutable facts with O(1) lookup.
+
+- **Tool Search Index**: For realms with many tools, search by natural language instead of loading all definitions. Expected 85% context savings for large tool libraries.
+
+- **New Configuration Options**:
+  | Variable | Default | Purpose |
+  |----------|---------|---------|
+  | `DAEM0NMCP_BM25_K1` | `1.5` | BM25 term saturation |
+  | `DAEM0NMCP_BM25_B` | `0.75` | BM25 length normalization |
+  | `DAEM0NMCP_RRF_K` | `60` | RRF fusion constant |
+  | `DAEM0NMCP_SURPRISE_K_NEAREST` | `5` | Neighbors for surprise |
+  | `DAEM0NMCP_RECALL_*_MAX_MEMORIES` | 5/10/20 | Limits by complexity |
+  | `DAEM0NMCP_FACT_PROMOTION_THRESHOLD` | `3` | Outcomes to promote fact |
+
 - **FastMCP 3.0**: The foundation has shifted. Import paths have changed internally, but the Daem0n handles this transparently.
 
 - **CovenantMiddleware**: The Sacred Covenant is now enforced at the MCP protocol layer itself:
@@ -1040,7 +1095,7 @@ When `check_rules` returns guidance:
 
 ---
 
-## THE COMPLETE GRIMOIRE OF POWERS (42+ Invocations)
+## THE COMPLETE GRIMOIRE OF POWERS (60 Invocations)
 
 **REMINDER:** ALL tools accept `project_path` as a parameter. Always pass the absolute path to your project root.
 
@@ -1048,11 +1103,21 @@ When `check_rules` returns guidance:
 
 #### `get_briefing(project_path, focus_areas?)`
 **When**: FIRST thing every session - communion with the Daem0n
-**Returns**: Statistics, recent decisions, warnings, failed approaches, realm changes
+**Returns**: Lean summary with counts, first-line summaries, and drill-down hints
 ```
 get_briefing(project_path="/path/to/project")
 get_briefing(project_path="/path/to/project", focus_areas=["authentication", "database"])
 ```
+
+**Lean Response Format:**
+- `recent_decisions`: First-line summaries with IDs and worked status
+- `active_warnings`: First-line summaries with IDs
+- `failed_approaches`: First-line summaries with IDs
+- `total_*` counts: Total items in each category
+- `drill_down`: Hint to use `recall()` for full details on specific memories
+
+The briefing is intentionally lean (~2-3k tokens). Use `recall(topic)` or `recall_for_file(path)` to drill down into specific memories when needed.
+
 *"Daem0n, share your visions..."*
 
 #### `context_check(description, project_path)`
@@ -1853,12 +1918,19 @@ These tools will block until you have called `get_briefing()`:
 - `link_memories`, `pin_memory`, `archive_memory` - managing memories
 - `prune_memories`, `cleanup_memories`, `compact_memories` - maintenance
 
-### Tools Exempt (Read-Only)
+### Tools Requiring Communion Only
 
-These tools work without prior communion:
+These read-only tools require communion (`get_briefing`) but not counsel:
 - `recall`, `recall_for_file`, `search_memories`, `find_related`
 - `find_code`, `analyze_impact`, `check_rules`, `list_rules`
-- `health`, `export_data`, `get_graph`, `trace_chain`
+- `export_data`, `get_graph`, `trace_chain`
+
+### Tools Exempt (Entry Points Only)
+
+Only these entry-point tools work without prior communion:
+- `get_briefing` - starts the communion (entry point)
+- `context_check` - part of the covenant flow
+- `health` - diagnostic, always available
 
 ### Preflight Tokens
 
@@ -1873,6 +1945,99 @@ mcp__daem0nmcp__context_check(
 ```
 
 The token is automatically cached. You do not need to pass it explicitly - the Daem0n remembers.
+
+---
+
+## THE PHASE GATES (Tool Visibility v4.0.0)
+
+*"The Daem0n reveals only what you need, when you need it..."*
+
+By default, Daem0n uses a **phase system** that controls which tools are visible based on your current workflow stage. This guides you through the Sacred Covenant, but can cause confusion if you don't understand it.
+
+### The Four Ritual Phases
+
+| Phase | Entry Tool | Tools Revealed |
+|-------|------------|----------------|
+| **BRIEFING** | `get_briefing()` | `recall`, `health`, `list_rules`, `get_graph`, `context_check` |
+| **EXPLORATION** | `context_check()` | `recall_for_file`, `check_rules`, `find_code`, `analyze_impact`, `search_memories`, `trace_chain` |
+| **ACTION** | `remember()` | `remember_batch`, `add_rule`, `update_rule`, `execute_python`, `pin_memory`, `archive_memory` |
+| **REFLECTION** | `record_outcome()` | `verify_facts`, `compress_context` |
+
+### The Expected Flow
+
+```
+get_briefing()      → Commune with the Daem0n (BRIEFING phase)
+        ↓
+context_check()     → Seek counsel before changes (EXPLORATION phase)
+        ↓
+remember()          → Inscribe your decisions (ACTION phase)
+        ↓
+record_outcome()    → Seal what worked or failed (REFLECTION phase)
+```
+
+### Phase Transition Rules
+
+Phases change **automatically** when you call specific tools:
+
+- Calling `get_briefing()` → Returns to BRIEFING phase
+- Calling `context_check()` → Advances to EXPLORATION phase
+- Calling `remember()`, `add_rule()`, or `execute_python()` → Advances to ACTION phase
+- Calling `record_outcome()` or `verify_facts()` → Advances to REFLECTION phase
+
+### Common Phase Errors
+
+**"Tool not available in briefing phase"**
+- You tried to call `remember`, `check_rules`, or `recall_for_file` without first calling `context_check()`
+- **Fix:** Call `context_check(description="what you're about to do", project_path="...")` first
+
+**"Tool not available in exploration phase"**
+- You're in exploration but tried to use a tool from a different phase
+- **Fix:** The action tool itself will transition you - just call it
+
+**Why Tools Get Blocked**
+The phase system enforces the Sacred Covenant by making tools invisible until you've completed the prerequisite steps. This prevents:
+- Inscribing memories without first checking for past failures
+- Making changes without seeking counsel
+- Skipping the briefing entirely
+
+### Disabling the Phase Gates
+
+If the phase system causes more confusion than guidance, disable it entirely via environment variable:
+
+**In your MCP config (~/.claude.json or project config):**
+```json
+{
+  "mcpServers": {
+    "daem0nmcp": {
+      "type": "http",
+      "url": "http://localhost:9876/mcp",
+      "env": {
+        "DAEM0NMCP_DISABLE_PHASES": "1"
+      }
+    }
+  }
+}
+```
+
+**Or for stdio transport:**
+```json
+{
+  "mcpServers": {
+    "daem0nmcp": {
+      "command": "python",
+      "args": ["-m", "daem0nmcp.server"],
+      "env": {
+        "DAEM0NMCP_DISABLE_PHASES": "1"
+      }
+    }
+  }
+}
+```
+
+With phases disabled:
+- All 60 tools become always visible
+- The Sacred Covenant workflow is still **expected** but not **enforced** via phase gates
+- Covenant enforcement (`COMMUNION_REQUIRED`, `COUNSEL_REQUIRED`) still applies
 
 ---
 
@@ -1958,4 +2123,4 @@ v2.16.0 includes compatibility fixes for Claude Code 2.1.3:
 
 ---
 
-*Grimoire of Daem0n v2.16.0: 42 tools for eternal memory with semantic understanding, vector embeddings (Qdrant backend), graph memory (causal chains), memory consolidation (compact_memories), knowledge consumption, refactor guidance, **code understanding layer with multi-language AST parsing (tree-sitter)**, proactive file watcher with multi-channel notifications, complete summoning rituals with wards, Windows Altar of HTTP with automatic Startup enrollment, pre-commit enforcement hooks (mandatory), covenant integration, law generation, the daem0nmcp-protocol skill, **Endless Mode (condensed recall for 50-75% token reduction)**, **Passive Capture (auto-recall before edits, smart remember suggestions, auto-extract decisions from responses)**, **Enhanced Search & Indexing (tag inference, qualified names, incremental indexing, parse tree caching)**, **Sacred Covenant Enforcement (rigid decorators, preflight tokens)**, and **MCP Resources for dynamic context injection**.*
+*Grimoire of Daem0n v4.0.0: 60 tools for eternal memory with cognitive architecture. **GraphRAG & Leiden Communities** (knowledge graphs, hierarchical community detection, multi-hop reasoning). **Bi-Temporal Knowledge** (dual timestamps, point-in-time queries, knowledge evolution). **Metacognitive Reflexion** (Actor-Evaluator-Reflector loop, verify_facts, Chain of Verification). **Context Engineering** (LLMLingua-2 compression, code preservation, adaptive rates). **Dynamic Agency** (ritual phase tracking, tool masking, execute_python sandbox, capability scoping). Plus all v3.1 features: BM25+RRF hybrid retrieval, TiMem recall planner, surprise scoring, Sacred Covenant enforcement, FastMCP 3.0 middleware, and 500+ tests. Set `DAEM0NMCP_DISABLE_PHASES=1` to disable phase-based tool visibility. The daemon has achieved full cognition.*

@@ -120,6 +120,7 @@ class KableBleRepository : BleRepository {
         private const val DELOAD_EVENT_DEBOUNCE_MS = 2000L
         private const val DIAGNOSTIC_POLL_INTERVAL_MS = 500L  // Keep-alive polling (matching parent)
         private const val HEURISTIC_POLL_INTERVAL_MS = 250L   // Force telemetry polling (4Hz - matching parent repo)
+        private const val DIAGNOSTIC_LOG_EVERY = 20L         // Log diagnostic poll success every N reads
 
         // Heartbeat no-op command (MUST be 4 bytes)
         private val HEARTBEAT_NO_OP = byteArrayOf(0x00, 0x00, 0x00, 0x00)
@@ -368,6 +369,8 @@ class KableBleRepository : BleRepository {
 
     // Diagnostic polling job (500ms keep-alive)
     private var diagnosticPollingJob: kotlinx.coroutines.Job? = null
+    private var diagnosticPollCount: Long = 0
+    private var lastDiagnosticFaults: List<Short>? = null
 
     // Heuristic polling job (250ms / 4Hz - force telemetry for Echo mode)
     private var heuristicPollingJob: kotlinx.coroutines.Job? = null
@@ -970,19 +973,21 @@ class KableBleRepository : BleRepository {
     }
 
     /**
-     * Perform heartbeat read on the MONITOR characteristic (not TX).
-     * TX is write-only and can't be read. Monitor reads are already working.
+     * Issue #222 v15: Perform heartbeat read matching parent repo behavior.
+     * Parent reads TX characteristic (nusRxCharacteristic in parent naming).
+     * This typically fails (TX is write-only) which triggers the no-op write.
      * Returns true if read succeeded, false otherwise.
      */
     private suspend fun performHeartbeatRead(p: Peripheral): Boolean {
         return try {
             bleOperationMutex.withLock {
-                p.read(monitorCharacteristic)
+                // Issue #222 v15: Read TX char to match parent (will typically fail)
+                p.read(txCharacteristic)
             }
-            log.v { "Heartbeat read succeeded (monitor char)" }
+            log.v { "Heartbeat read succeeded (TX char)" }
             true
         } catch (e: Exception) {
-            log.w { "Heartbeat read failed: ${e.message}" }
+            log.d { "Heartbeat read failed (expected): ${e.message}" }
             false
         }
     }
@@ -990,11 +995,12 @@ class KableBleRepository : BleRepository {
     /**
      * Send heartbeat no-op write as fallback when read fails.
      * Uses 4-byte no-op command (MUST be exactly 4 bytes).
-     * V-Form devices only support WriteWithResponse.
+     * Issue #222 v15.1: V-Form requires WithResponse.
      */
     private suspend fun sendHeartbeatNoOp(p: Peripheral) {
         try {
             bleOperationMutex.withLock {
+                // Issue #222 v15.1: V-Form only supports WithResponse
                 p.write(txCharacteristic, HEARTBEAT_NO_OP, WriteType.WithResponse)
             }
             log.v { "Heartbeat no-op write sent" }
@@ -1167,6 +1173,8 @@ class KableBleRepository : BleRepository {
             log.d { "🔄 Starting SEQUENTIAL diagnostic polling (${DIAGNOSTIC_POLL_INTERVAL_MS}ms interval - matches official app)" }
             var successfulReads = 0L
             var failedReads = 0L
+            diagnosticPollCount = 0
+            lastDiagnosticFaults = null
 
             while (_connectionState.value is ConnectionState.Connected && isActive) {
                 try {
@@ -1178,8 +1186,9 @@ class KableBleRepository : BleRepository {
 
                     if (data != null) {
                         successfulReads++
-                        if (successfulReads % 100 == 0L) {
-                            log.v { "📊 Diagnostic poll #$successfulReads (failed: $failedReads)" }
+                        diagnosticPollCount++
+                        if (diagnosticPollCount == 1L || diagnosticPollCount % DIAGNOSTIC_LOG_EVERY == 0L) {
+                            log.d { "📊 Diagnostic poll #$diagnosticPollCount (bytes=${data.size}, failed=$failedReads)" }
                         }
                         parseDiagnosticData(data)
                     } else {
@@ -1281,12 +1290,16 @@ class KableBleRepository : BleRepository {
             }
 
             val containsFaults = faults.any { it != 0.toShort() }
+            val faultSnapshot = faults.toList()
+            val faultsChanged = lastDiagnosticFaults == null || lastDiagnosticFaults != faultSnapshot
+            if (faultsChanged) {
+                log.i { "DIAGNOSTIC update: faults=$faultSnapshot temps=${temps.map { it.toInt() }}" }
+                lastDiagnosticFaults = faultSnapshot
+            }
+
             if (containsFaults) {
                 log.w { "⚠️ DIAGNOSTIC FAULTS DETECTED: $faults" }
             }
-
-            // Could expose this as a flow if UI needs it
-            // For now, just log for diagnostics
         } catch (e: Exception) {
             log.e { "Failed to parse diagnostic data: ${e.message}" }
         }
@@ -1353,6 +1366,17 @@ class KableBleRepository : BleRepository {
         // Reset position tracking for new workout/session
         minPositionSeen = Double.MAX_VALUE
         maxPositionSeen = Double.MIN_VALUE
+
+        // Issue #222 v16: Reset poll/velocity stats on restart to avoid stale gaps
+        lastTimestamp = 0L
+        pollIntervalSum = 0L
+        pollIntervalCount = 0L
+        minPollInterval = Long.MAX_VALUE
+        maxPollInterval = 0L
+        lastPositionA = 0.0f
+        lastPositionB = 0.0f
+        smoothedVelocityA = 0.0
+        smoothedVelocityB = 0.0
 
         // Reset notification counter for this session
         val previousCount = monitorNotificationCount
@@ -1538,11 +1562,41 @@ class KableBleRepository : BleRepository {
                 // Issue #222: Log mutex state before acquiring for debugging
                 log.d { "BLE mutex locked: ${bleOperationMutex.isLocked}, acquiring..." }
 
+                val attemptStart = currentTimeMillis()
                 bleOperationMutex.withLock {
                     log.d { "BLE mutex acquired, sending command" }
+                    // Issue #222 v15.1: V-Form devices only support WithResponse
+                    // Parent uses NoResponse but V-Form doesn't advertise that capability
                     p.write(txCharacteristic, command, WriteType.WithResponse)
                 }
+                val elapsedMs = currentTimeMillis() - attemptStart
+                log.d { "TX write ok: size=${command.size}, type=WithResponse, elapsed=${elapsedMs}ms, attempt=${attempt + 1}" }
                 log.i { "✅ Command sent via NUS TX: ${command.size} bytes" }
+
+                // Issue #222 v16 (optional): One-shot diagnostic read after CONFIG to catch early faults.
+                val isEchoConfig = command.size == 32 && command[0] == 0x4E.toByte()
+                val isProgramConfig = command.size == 96 && command[0] == 0x04.toByte()
+                if (isEchoConfig || isProgramConfig) {
+                    val delayMs = if (isProgramConfig) 350L else 200L
+                    scope.launch {
+                        delay(delayMs)
+                        try {
+                            val data = withTimeoutOrNull(500L) {
+                                bleOperationMutex.withLock {
+                                    p.read(diagnosticCharacteristic)
+                                }
+                            }
+                            if (data != null) {
+                                log.d { "Post-CONFIG diagnostic read (${data.size} bytes)" }
+                                parseDiagnosticData(data)
+                            } else {
+                                log.d { "Post-CONFIG diagnostic read timed out" }
+                            }
+                        } catch (e: Exception) {
+                            log.w { "Post-CONFIG diagnostic read failed: ${e.message}" }
+                        }
+                    }
+                }
 
                 logRepo.debug(
                     LogEventType.COMMAND_SENT,
@@ -1638,10 +1692,13 @@ class KableBleRepository : BleRepository {
             // This fully stops the workout on the machine
             val resetCmd = BlePacketFactory.createResetCommand()
             log.d { "Sending RESET command (0x0A)..." }
+            println("Issue222 TRACE: stopWorkout -> sending RESET (0x0A)")
             sendWorkoutCommand(resetCmd)
             kotlinx.coroutines.delay(50)  // Short delay for machine to process
 
-            // Stop all polling when workout ends
+            // Stop polling AFTER reset (parent behavior)
+            log.d { "Stopping polling after RESET..." }
+            println("Issue222 TRACE: stopWorkout -> stopping polling after RESET")
             stopPolling()
 
             Result.success(Unit)
@@ -1765,9 +1822,31 @@ class KableBleRepository : BleRepository {
         log.i { "🏋️ Starting active workout polling (no auto-start)" }
         val p = peripheral
         if (p != null) {
+            log.d {
+                "Issue #222 v16: Polling job states before restart - " +
+                    "monitor=${monitorPollingJob?.isActive}, " +
+                    "diagnostic=${diagnosticPollingJob?.isActive}, " +
+                    "heuristic=${heuristicPollingJob?.isActive}, " +
+                    "heartbeat=${heartbeatJob?.isActive}"
+            }
+
             // Start polling for active workout (forAutoStart=false)
             // Handle state is set to Active, no grab detection
             startMonitorPolling(p, forAutoStart = false)
+
+            // Issue #222 v16: Restart keep-alive + telemetry polling if stopWorkout() canceled them
+            if (diagnosticPollingJob?.isActive != true) {
+                log.d { "Issue #222 v16: Restarting diagnostic polling (was stopped by previous stopWorkout)" }
+                startDiagnosticPolling(p)
+            }
+            if (heartbeatJob?.isActive != true) {
+                log.d { "Issue #222 v16: Restarting heartbeat (was stopped by previous stopWorkout)" }
+                startHeartbeat()
+            }
+            if (heuristicPollingJob?.isActive != true) {
+                log.d { "Issue #222 v16: Restarting heuristic polling (was stopped by previous stopWorkout)" }
+                startHeuristicPolling(p)
+            }
         } else {
             log.w { "Cannot start active workout polling - peripheral is null" }
         }
@@ -1776,6 +1855,11 @@ class KableBleRepository : BleRepository {
     override fun stopPolling() {
         val timestamp = currentTimeMillis()
         log.d { "STOP_DEBUG: [$timestamp] stopPolling() called" }
+        log.d {
+            "STOP_DEBUG: Job states before cancel - monitor=${monitorPollingJob?.isActive}, " +
+                "diagnostic=${diagnosticPollingJob?.isActive}, heuristic=${heuristicPollingJob?.isActive}, " +
+                "heartbeat=${heartbeatJob?.isActive}"
+        }
 
         // Log analysis from workout (position range for diagnostics)
         // Matches logic from old VitruvianBleManager.kt
@@ -1797,6 +1881,8 @@ class KableBleRepository : BleRepository {
         diagnosticPollingJob = null
         heuristicPollingJob = null
         heartbeatJob = null
+        diagnosticPollCount = 0
+        lastDiagnosticFaults = null
 
         val afterCancel = currentTimeMillis()
         log.d { "STOP_DEBUG: [$afterCancel] Jobs cancelled (took ${afterCancel - timestamp}ms)" }
@@ -1811,6 +1897,10 @@ class KableBleRepository : BleRepository {
         log.d { "Stopping monitor polling only - diagnostic polling + heartbeat continue" }
         monitorPollingJob?.cancel()
         monitorPollingJob = null
+        log.d {
+            "Monitor-only stop: diagnostic=${diagnosticPollingJob?.isActive}, " +
+                "heuristic=${heuristicPollingJob?.isActive}, heartbeat=${heartbeatJob?.isActive}"
+        }
         // Keep diagnostic, heuristic, and heartbeat running
     }
 
@@ -1830,11 +1920,15 @@ class KableBleRepository : BleRepository {
         // Restart diagnostic polling if not already running
         if (diagnosticPollingJob?.isActive != true) {
             startDiagnosticPolling(p)
+        } else {
+            log.d { "Diagnostic polling already active - skip restart" }
         }
 
         // Restart heartbeat if not already running
         if (heartbeatJob?.isActive != true) {
             startHeartbeat()
+        } else {
+            log.d { "Heartbeat already active - skip restart" }
         }
     }
 
