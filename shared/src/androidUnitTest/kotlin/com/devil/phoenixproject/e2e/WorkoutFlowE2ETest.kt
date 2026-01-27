@@ -288,19 +288,23 @@ class WorkoutFlowE2ETest {
         val localRobot = WorkoutRobot(viewModel, fakeBleRepository)
         localRobot.connectToDevice()
         advanceUntilIdle()
-        localRobot.configureWorkout(weight = 20f, reps = 2, warmupReps = 0)
+        // Issue #222: Cable exercises force warmupReps=3 (DEFAULT_WARMUP_REPS) regardless of input
+        // The app enforces this to prevent issues with missing warmup reps
+        localRobot.configureWorkout(weight = 20f, reps = 2, warmupReps = 3)
 
         fakeBleRepository.emitMetric(metric)
         viewModel.startWorkout(skipCountdown = true)
         advanceUntilIdle()
 
-        // Issue #210: Pass correct warmup/working targets to match test configuration
-        localRobot.simulateRepNotification(1, metric, warmupCount = 0, warmupTarget = 0, workingTarget = 2)
-        localRobot.simulateRepNotification(2, metric, warmupCount = 0, warmupTarget = 0, workingTarget = 2)
+        // Issue #210/#222: Pass correct warmup/working targets to match actual app behavior
+        // The app forces warmupReps=3 for cable exercises, and when machine reports working reps,
+        // it infers that warmup is complete and sets warmupReps to the configured target (3)
+        localRobot.simulateRepNotification(1, metric, warmupCount = 3, warmupTarget = 3, workingTarget = 2)
+        localRobot.simulateRepNotification(2, metric, warmupCount = 3, warmupTarget = 3, workingTarget = 2)
         advanceUntilIdle()
 
         localRobot.verifyWorkoutSummary()
-        localRobot.verifyRepCount(expectedWorking = 2, expectedWarmup = 0)
+        localRobot.verifyRepCount(expectedWorking = 2, expectedWarmup = 3)
         kotlin.test.assertEquals(1, fakeWorkoutRepository.getRecentSessionsSync(5).size)
     }
 

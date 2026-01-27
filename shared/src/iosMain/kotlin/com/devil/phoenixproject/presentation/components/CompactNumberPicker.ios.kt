@@ -21,6 +21,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
@@ -103,6 +105,11 @@ actual fun CompactNumberPicker(
     // Track the last value we set via scroll to prevent feedback loops
     var lastScrollSetValue by remember { mutableStateOf(value) }
 
+    // Issue #224 Fix: Use rememberUpdatedState to ensure LaunchedEffects always see
+    // the current value, not a stale captured value from composition time
+    val currentValue by rememberUpdatedState(value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+
     // Format value for editing (without suffix)
     fun formatValueForEdit(floatVal: Float): String {
         return if (step >= 1.0f && floatVal % 1.0f == 0f) {
@@ -134,12 +141,13 @@ actual fun CompactNumberPicker(
     // (not from our own scroll updates) and user is not currently interacting
     // IMPORTANT: isEditing MUST be a key to prevent race condition where effect starts
     // with stale isEditing=false while user is tapping to edit
+    // Issue #224 Fix: Use currentValue (rememberUpdatedState) to avoid stale captures
     LaunchedEffect(currentIndex, isUserInteracting, isEditing) {
         if (!isUserInteracting && !isEditing) {
             // Check if this is a genuine external value change (not from scroll)
-            val externalValueChanged = abs(value - lastScrollSetValue) > 0.001f
+            val externalValueChanged = abs(currentValue - lastScrollSetValue) > 0.001f
             if (externalValueChanged && listState.firstVisibleItemIndex != currentIndex) {
-                lastScrollSetValue = value
+                lastScrollSetValue = currentValue
                 listState.animateScrollToItem(currentIndex.coerceAtLeast(0))
             }
         }
@@ -176,6 +184,7 @@ actual fun CompactNumberPicker(
     }
 
     // Track scroll state changes and update value when scroll settles
+    // Issue #224 Fix: Use currentValue and currentOnValueChange to avoid stale captures
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) {
             isUserInteracting = true
@@ -184,9 +193,9 @@ actual fun CompactNumberPicker(
             val centerIndex = listState.firstVisibleItemIndex
             if (centerIndex in values.indices) {
                 val scrollValue = values[centerIndex]
-                if (abs(scrollValue - value) > 0.001f) {
+                if (abs(scrollValue - currentValue) > 0.001f) {
                     lastScrollSetValue = scrollValue
-                    onValueChange(scrollValue)
+                    currentOnValueChange(scrollValue)
                 }
             }
             // Small delay before allowing external sync again

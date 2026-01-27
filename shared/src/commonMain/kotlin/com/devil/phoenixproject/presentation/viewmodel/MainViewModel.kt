@@ -920,6 +920,15 @@ class MainViewModel constructor(
             isCurrentWorkoutTimed = exerciseDuration != null
             _isCurrentExerciseBodyweight.value = isBodyweight
 
+            // Issue #227: Detailed logging to trace exercise type detection
+            Logger.d { "Issue227: startWorkout exercise type detection:" }
+            Logger.d { "  - Exercise: ${currentExercise?.exercise?.name}" }
+            Logger.d { "  - Equipment: '${currentExercise?.exercise?.equipment}'" }
+            Logger.d { "  - Weight: ${currentExercise?.weightPerCableKg}kg" }
+            Logger.d { "  - Duration: ${exerciseDuration}s" }
+            Logger.d { "  - isBodyweight: $isBodyweight" }
+            Logger.d { "  - isTimedCableExercise: $isTimedCableExercise" }
+
             // Issue #222: For ALL bodyweight exercises, skip machine commands
             // Bodyweight exercises don't use the cables, so no BLE commands should be sent.
             // ExerciseConfigViewModel forces duration mode for bodyweight, but handle edge cases
@@ -1051,57 +1060,12 @@ class MainViewModel constructor(
             }
             Logger.d { "Built ${command.size}-byte workout command for ${effectiveParams.programMode}" }
 
-            // Issue #222: REMOVED INIT command (0x0A) before workout start.
-            // Per parent repo BleRepositoryImpl.kt: USE_INIT_RESET_BEFORE_START = false
-            // Comment: "DEPRECATED: The official app does not use the 0x0A handshake.
-            // The 0x0A/0x11 init sequence is legacy web app protocol that causes issues."
-            // Sending 0x0A here was causing duplicate resets when combined with
-            // STOP/RESET from skipRest(), leading to yellow light faults.
+            // NOTE: CONFIG and START commands are now sent AFTER countdown (see below).
+            // User testing confirmed that CONFIG itself activates the machine and starts
+            // rep counting - the START command may be vestigial or only engage motor resistance.
+            // By delaying both until after countdown, the machine and UI are synchronized.
 
-            // 2. Send Configuration Command (0x04 header, 96 bytes)
-            // This sets the workout parameters but does NOT engage the motors
-            try {
-                bleRepository.sendWorkoutCommand(command)
-                Logger.i { "CONFIG command sent (0x04): ${command.size} bytes for ${effectiveParams.programMode}" }
-                // Log first 16 bytes for debugging
-                val preview = command.take(16).joinToString(" ") { it.toUByte().toString(16).padStart(2, '0').uppercase() }
-                Logger.d { "Config preview: $preview ..." }
-            } catch (e: Exception) {
-                Logger.e(e) { "Failed to send config command" }
-                _connectionError.value = "Failed to send command: ${e.message}"
-                return@launch
-            }
-
-            // Issue #222: Only send START command (0x03) for Program modes, NOT for Echo mode.
-            // The parent repo's BleRepositoryImpl.startWorkout() sends ONLY the Echo frame (0x4E)
-            // for Echo mode - no separate START command. The Echo frame is self-contained and
-            // activates immediately. Sending an unexpected START command after Echo mode causes
-            // the machine to fault (yellow lights) because it's already in active state.
-            // For Program modes (0x04/0x4F), START is needed to engage the motors after CONFIG.
-            if (!effectiveParams.isEchoMode) {
-                // Issue #110/#222: Add delay between commands to prevent BLE congestion
-                // and give machine time to process CONFIG before receiving START.
-                delay(200)
-
-                try {
-                    val startCommand = BlePacketFactory.createStartCommand()
-                    bleRepository.sendWorkoutCommand(startCommand)
-                    Logger.i { "START command sent (0x03) - motors should engage" }
-                } catch (e: Exception) {
-                    Logger.e(e) { "Failed to send START command" }
-                    _connectionError.value = "Failed to start workout: ${e.message}"
-                    return@launch
-                }
-            } else {
-                Logger.i { "Echo mode: Skipping START command (Echo frame 0x4E is self-activating)" }
-                // Brief delay for machine to process Echo frame
-                delay(100)
-            }
-
-            // Start active workout polling (always needed for both modes)
-            bleRepository.startActiveWorkoutPolling()
-
-            // 4. Reset State
+            // 2. Reset State (prepare app state during countdown)
             currentSessionId = KmpUtils.randomUUID()
             _repCount.value = RepCount()
             // Issue #213: Reset Echo mode force telemetry to avoid showing stale data from previous set
@@ -1129,7 +1093,7 @@ class MainViewModel constructor(
                 Logger.d { "Starting TIMED cable exercise: ${currentExercise?.exercise?.name} for ${exerciseDuration}s (no ROM calibration)" }
             }
 
-            // 5. Countdown (skipped for Just Lift auto-start, can be skipped mid-way via skipCountdownRequested)
+            // 3. Countdown (skipped for Just Lift auto-start, can be skipped mid-way via skipCountdownRequested)
             if (!skipCountdownRequested && !isJustLiftMode) {
                 for (i in 5 downTo 1) {
                     if (skipCountdownRequested) break
@@ -1137,6 +1101,38 @@ class MainViewModel constructor(
                     delay(1000)
                 }
             }
+
+            // 4. Send CONFIG command AFTER countdown completes
+            // User testing confirmed CONFIG itself activates the machine and starts rep counting.
+            // By sending after countdown, machine activation is synchronized with UI state.
+            try {
+                bleRepository.sendWorkoutCommand(command)
+                Logger.i { "CONFIG command sent: ${command.size} bytes for ${effectiveParams.programMode}" }
+                val preview = command.take(16).joinToString(" ") { it.toUByte().toString(16).padStart(2, '0').uppercase() }
+                Logger.d { "Config preview: $preview ..." }
+            } catch (e: Exception) {
+                Logger.e(e) { "Failed to send config command" }
+                _connectionError.value = "Failed to send command: ${e.message}"
+                return@launch
+            }
+
+            // 5. Send START command (may be vestigial - CONFIG appears to activate the machine)
+            // Keeping for now in case it affects motor resistance engagement.
+            if (!effectiveParams.isEchoMode) {
+                delay(100)  // Brief delay between CONFIG and START
+                try {
+                    val startCommand = BlePacketFactory.createStartCommand()
+                    bleRepository.sendWorkoutCommand(startCommand)
+                    Logger.i { "START command sent (0x03)" }
+                } catch (e: Exception) {
+                    Logger.e(e) { "Failed to send START command" }
+                    _connectionError.value = "Failed to start workout: ${e.message}"
+                    return@launch
+                }
+            }
+
+            // Start active workout polling now that we're ready
+            bleRepository.startActiveWorkoutPolling()
 
             // 7. Start Monitoring
             _workoutState.value = WorkoutState.Active
@@ -4108,11 +4104,31 @@ class MainViewModel constructor(
 
     /**
      * Check if the given exercise is a bodyweight exercise.
+     *
+     * Issue #227: Improved detection to handle edge cases where equipment field may be
+     * empty due to database default or save issues. A true bodyweight exercise:
+     * - Has empty/bodyweight equipment AND
+     * - Has no significant weight configured (bodyweight exercises don't use cables)
+     *
+     * This prevents cable exercises from being incorrectly treated as bodyweight when
+     * the equipment field is missing but weight is configured.
      */
     private fun isBodyweightExercise(exercise: RoutineExercise?): Boolean {
         return exercise?.let {
             val equipment = it.exercise.equipment
-            equipment.isEmpty() || equipment.equals("bodyweight", ignoreCase = true)
+            val hasBodyweightEquipment = equipment.isEmpty() || equipment.equals("bodyweight", ignoreCase = true)
+
+            // Issue #227: Also check weight - if weight > 0, it's likely a cable exercise
+            // even if equipment field is empty (defensive check for data issues)
+            val hasSignificantWeight = it.weightPerCableKg > 0.5f
+
+            // True bodyweight: has bodyweight equipment AND no significant weight
+            // If weight is configured, treat as cable exercise to avoid skipping BLE commands
+            val isBodyweight = hasBodyweightEquipment && !hasSignificantWeight
+
+            Logger.d { "Issue227: isBodyweightExercise check - exercise=${it.exercise.name}, equipment='$equipment', weight=${it.weightPerCableKg}kg, result=$isBodyweight" }
+
+            isBodyweight
         } ?: false
     }
 
