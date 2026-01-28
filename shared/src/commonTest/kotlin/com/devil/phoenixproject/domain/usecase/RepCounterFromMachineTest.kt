@@ -286,6 +286,68 @@ class RepCounterFromMachineTest {
         assertEquals(0, count.workingReps)
     }
 
+    // ========== Issue #210: First Rep Not Registering ==========
+
+    @Test
+    fun `Issue 210 - first warmup rep registers immediately in legacy mode`() {
+        // Issue #210: V-Form users reported first warmup rep doesn't register
+        // ROOT CAUSE: lastTopCounter was null on first notification, so baseline was
+        // established instead of counting the rep.
+        // FIX: Initialize lastTopCounter to 0, so first notification with up=1 gives delta=1
+        repCounter.configure(warmupTarget = 3, workingTarget = 10, isJustLift = false, stopAtTop = false)
+
+        // CRITICAL: NO baseline call - machine starts workout and sends first rep immediately
+        // This mimics V-Form behavior where first notification arrives with up=1
+        repCounter.process(repsRomCount = 0, repsSetCount = 0, up = 1, down = 0, isLegacyFormat = true)
+
+        val count = repCounter.getRepCount()
+        assertEquals(1, count.warmupReps, "First warmup rep should be counted immediately without baseline")
+        assertEquals(0, count.workingReps)
+        assertFalse(count.isWarmupComplete)
+
+        // Verify the WARMUP_COMPLETED event was fired
+        assertTrue(capturedEvents.any { it.type == RepType.WARMUP_COMPLETED && it.warmupCount == 1 },
+            "WARMUP_COMPLETED event should fire for first rep")
+    }
+
+    @Test
+    fun `Issue 210 - first warmup rep registers immediately in modern mode`() {
+        // Same issue in modern mode - repsRomCount=1 on first notification should count
+        repCounter.configure(warmupTarget = 3, workingTarget = 10, isJustLift = false, stopAtTop = false)
+
+        // CRITICAL: NO baseline call - machine sends first rep data immediately
+        repCounter.process(repsRomCount = 1, repsSetCount = 0, up = 1, down = 1)
+
+        val count = repCounter.getRepCount()
+        assertEquals(1, count.warmupReps, "First warmup rep should be counted from repsRomCount=1")
+        assertEquals(0, count.workingReps)
+        assertFalse(count.isWarmupComplete)
+    }
+
+    @Test
+    fun `Issue 210 - warmup completes at correct time without baseline`() {
+        // Ensure warmup transitions to working at the right time even without explicit baseline
+        repCounter.configure(warmupTarget = 3, workingTarget = 10, isJustLift = false, stopAtTop = false)
+
+        // Simulate V-Form sequence: 3 warmup reps without baseline call
+        repCounter.process(repsRomCount = 1, repsSetCount = 0, up = 1, down = 1)
+        assertEquals(1, repCounter.getRepCount().warmupReps)
+
+        repCounter.process(repsRomCount = 2, repsSetCount = 0, up = 2, down = 2)
+        assertEquals(2, repCounter.getRepCount().warmupReps)
+
+        repCounter.process(repsRomCount = 3, repsSetCount = 0, up = 3, down = 3)
+        assertEquals(3, repCounter.getRepCount().warmupReps)
+        assertTrue(repCounter.getRepCount().isWarmupComplete, "Warmup should complete after 3 reps")
+
+        // WARMUP_COMPLETE event should have fired
+        assertTrue(capturedEvents.any { it.type == RepType.WARMUP_COMPLETE })
+
+        // First working rep
+        repCounter.process(repsRomCount = 3, repsSetCount = 1, up = 4, down = 4)
+        assertEquals(1, repCounter.getRepCount().workingReps, "First working rep should register")
+    }
+
     // ========== Legacy Mode Rep Counting Tests ==========
 
     @Test
