@@ -21,9 +21,6 @@ object Constants {
     const val MIN_REPS = 1
     const val MAX_REPS = 100
     const val DEFAULT_WARMUP_REPS = 3
-    // Issue #231: Duration exercises use a high rep count so the timer controls set completion,
-    // not the rep counter. Without this, the machine auto-stops at the default rep count.
-    const val DEFAULT_DURATION_EXERCISE_REPS = 50
 
     // BLE configuration
     const val BLE_SCAN_TIMEOUT_MS = 30000L  // Matches parent repo BleConstants.SCAN_TIMEOUT_MS
