@@ -20,9 +20,9 @@
 - [x] 4.3 Implement Old School hands-free state machine (idle/ready/calibrating/active/ending)
 
 ## 5. Just Lift Orchestrator (Still No TUI)
-- [ ] 5.1 Implement “start set” sequence (program params → short delay → start), guarded by explicit arming
-- [ ] 5.2 Implement “stop set” (soft stop always; reset on fatal / explicit request)
-- [ ] 5.3 Add logging + structured events for later TUI integration
+- [x] 5.1 Implement “start set” sequence (program params → short delay → start), guarded by explicit arming
+- [x] 5.2 Implement “stop set” (soft stop always; reset on fatal / explicit request)
+- [x] 5.3 Add logging + structured events for later TUI integration
 
 ## 6. Terminal UI
 - [ ] 6.1 Device list + connect/disconnect UX

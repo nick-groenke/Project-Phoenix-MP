@@ -5,9 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"sort"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -17,7 +17,9 @@ import (
 
 	"github.com/nick-groenke/Project-Phoenix-MP/gocode/internal/serial"
 	"github.com/nick-groenke/Project-Phoenix-MP/gocode/internal/vitruvian"
+	"github.com/nick-groenke/Project-Phoenix-MP/gocode/justlift"
 	"github.com/nick-groenke/Project-Phoenix-MP/gocode/protocol"
+	"github.com/nick-groenke/Project-Phoenix-MP/gocode/session"
 	"github.com/nick-groenke/Project-Phoenix-MP/gocode/telemetry"
 )
 
@@ -48,6 +50,8 @@ func run(args []string) error {
 		return cmdScan(ctx, args[1:])
 	case "connect":
 		return cmdConnect(ctx, args[1:])
+	case "just-lift":
+		return cmdJustLift(ctx, args[1:])
 	default:
 		usage()
 		return fmt.Errorf("unknown command: %s", args[0])
@@ -60,10 +64,12 @@ func usage() {
 Usage:
   vitruvian-spike scan [flags]
   vitruvian-spike connect [flags]
+  vitruvian-spike just-lift [flags]
 
 Commands:
   scan     Scan and list candidate devices
   connect  Connect and verify characteristics + stream telemetry
+  just-lift  Run headless “Just Lift” orchestrator (no TUI)
 `)
 }
 
@@ -268,6 +274,104 @@ func cmdConnect(ctx context.Context, args []string) error {
 			lastPrint = now
 		}
 	}
+}
+
+func cmdJustLift(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("just-lift", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	addr := fs.String("addr", "", "device address to connect to (as printed by scan)")
+	nameSubstr := fs.String("name-substr", "", "connect to the first device whose name contains this substring")
+	connectTimeout := fs.Duration("connect-timeout", 12*time.Second, "timeout for the connect scan+connect phase")
+	dialTimeout := fs.Duration("dial-timeout", 12*time.Second, "timeout for the dial/connect operation once a device is chosen")
+	weightLb := fs.Int("weight-lb", 10, "per-cable weight in lb (10-100 step 1)")
+	arm := fs.Bool("arm", false, "arm the session (enables auto start/stop behavior)")
+	dryRun := fs.Bool("dry-run", true, "enable dry-run guard (suppresses motor-start writes)")
+	n := fs.Duration("n", 3*time.Second, "hold steady duration before calibration (start trigger)")
+	j := fs.Duration("j", 2*time.Second, "hold bottom duration to end set")
+	printTelemetry := fs.Bool("print-telemetry", false, "print parsed monitor/reps events (very chatty)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *addr == "" && *nameSubstr == "" {
+		return errors.New("provide --addr or --name-substr")
+	}
+	if err := justlift.ValidateWeightLb(*weightLb); err != nil {
+		return err
+	}
+
+	filter := func(a ble.Advertisement) bool {
+		name := strings.TrimSpace(a.LocalName())
+		if *addr != "" && a.Addr().String() == *addr {
+			return true
+		}
+		if *nameSubstr != "" && strings.Contains(name, *nameSubstr) {
+			return true
+		}
+		return false
+	}
+
+	fmt.Fprintf(os.Stdout, "Connecting… (addr=%q name-substr=%q)\n", *addr, *nameSubstr)
+	cln, chosen, err := connectAndDial(ctx, *connectTimeout, *dialTimeout, *addr, *nameSubstr, filter)
+	if err != nil {
+		return err
+	}
+	defer cln.CancelConnection()
+	fmt.Fprintf(os.Stdout, "Connected to %s\n", chosen)
+
+	exec := serial.New()
+	defer exec.Close()
+
+	p, err := cln.DiscoverProfile(true)
+	if err != nil {
+		return fmt.Errorf("discover profile: %w", err)
+	}
+
+	tx, monitor, reps := protocol.FindRequiredCharacteristics(p)
+	if tx == nil || monitor == nil || reps == nil {
+		return fmt.Errorf("missing required characteristics: tx=%v monitor=%v reps=%v", tx != nil, monitor != nil, reps != nil)
+	}
+
+	sessCfg := session.DefaultConfig()
+	sessCfg.HoldSteady = *n
+	sessCfg.HoldBottom = *j
+
+	o, err := justlift.New(
+		justlift.Config{
+			StartArmed: *arm,
+			Session: justlift.ControllerConfig{
+				Session:          sessCfg,
+				WeightPerCableLb: *weightLb,
+			},
+		},
+		justlift.BLEDeps{
+			Client:  cln,
+			TX:      tx,
+			Monitor: monitor,
+			Reps:    reps,
+			Exec:    exec,
+			DryRun:  *dryRun,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stdout, "Just Lift running (armed=%v dry-run=%v weight=%dlb/cable n=%s j=%s). Ctrl+C to stop.\n", *arm, *dryRun, *weightLb, n.String(), j.String())
+
+	donePrinting := make(chan struct{})
+	go func() {
+		defer close(donePrinting)
+		for ev := range o.Events() {
+			if !*printTelemetry && (ev.Type == justlift.EventMonitorSample || ev.Type == justlift.EventRepsEvent) {
+				continue
+			}
+			fmt.Fprintf(os.Stdout, "%s  %s\n", ev.At.Format("15:04:05.000"), ev.String())
+		}
+	}()
+
+	err = o.Run(ctx)
+	<-donePrinting
+	return err
 }
 
 func execRead(ctx context.Context, exec *serial.Executor, cln ble.Client, c *ble.Characteristic) ([]byte, error) {
